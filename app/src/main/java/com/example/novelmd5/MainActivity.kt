@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         findViewById<Button>(R.id.btnPickImgDir).setOnClickListener {
-            pickTarget = "imgDir"; pickDir.launch(arrayOf("*/*"))
+            pickTarget = "imgDir"; pickDir.launch(null)
         }
         findViewById<Button>(R.id.btnPickNovel).setOnClickListener {
             pickText.launch(arrayOf("text/*"))
