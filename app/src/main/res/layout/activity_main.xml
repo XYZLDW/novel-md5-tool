@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gap="12dp">
+
+        <!-- 标题 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="小说 MD5 图片工具"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33000000" />
+
+        <!-- 功能1 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="功能1：批量重命名图片为 MD5+扩展名"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvImgDir"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_gravity="center_vertical"
+                android:text="未选择文件夹"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Button
+                android:id="@+id/btnPickImgDir"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选择文件夹" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnDoRename"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开始重命名" />
+
+        <ProgressBar
+            android:id="@+id/progressRename"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvRenameResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="13sp"
+            android:lineSpacingExtra="3dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33000000" />
+
+        <!-- 功能2 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="功能2：小说 txt 批量替换 img"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvNovelFile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_gravity="center_vertical"
+                android:text="未选择小说 txt"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Button
+                android:id="@+id/btnPickNovel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选择txt" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvMd5Count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_gravity="center_vertical"
+                android:text="未提供 MD5 图片"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Button
+                android:id="@+id/btnPickMd5Dir"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选图片文件夹" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvMd5OrderHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚠️ 图片文件夹按【文件名排序】依次提供 MD5。\n请确认文件夹内文件名顺序 = 你期望填入小说的顺序（如 0001、0002… 排号），否则会填乱。"
+            android:textSize="12sp"
+            android:textColor="#FF8F00"
+            android:lineSpacingExtra="2dp"
+            android:background="#11FF8F00"
+            android:padding="6dp" />
+
+        <Button
+            android:id="@+id/btnDoNovel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开始替换"
+            android:enabled="false" />
+
+        <TextView
+            android:id="@+id/tvNovelResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="13sp"
+            android:lineSpacingExtra="3dp" />
+
+        <!-- 输出目录 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="输出目录（功能2结果写入此目录）"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvOutDir"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_gravity="center_vertical"
+                android:text="未选择"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Button
+                android:id="@+id/btnPickOutDir"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选择" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
