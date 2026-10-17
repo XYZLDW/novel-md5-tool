@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
                     md5Dir = File(UriToPath.toRealPath(this, uri) ?: "")
                     val n = md5Dir?.let { d ->
                         d.listFiles { f ->
-                            f.isFile && f.name.lowercase().endsWith(IMG_EXTS)
+                            f.isFile && IMG_EXTS.any { ext -> f.name.lowercase().endsWith(ext) }
                         }?.size
                     } ?: 0
                     findViewById<TextView>(R.id.tvMd5Count).text = "已选文件夹（$n 张图，按文件名排序提供 MD5）"
@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         out.mkdirs()
 
         val images = md5Dir.listFiles { f ->
-            f.isFile && f.name.lowercase().endsWith(IMG_EXTS)
+            f.isFile && IMG_EXTS.any { ext -> f.name.lowercase().endsWith(ext) }
         }?.sortedBy { it.name.lowercase() } ?: emptyList()
 
         if (images.isEmpty()) {
