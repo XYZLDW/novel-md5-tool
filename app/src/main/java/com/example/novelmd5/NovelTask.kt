@@ -38,7 +38,9 @@ object NovelTask {
             // 按出现顺序拼接占位符
             val sb = StringBuilder()
             var lastEnd = 0
-            for ((i, (s, e)) in positions.withIndex()) {
+            for ((i, p) in positions.withIndex()) {
+                val s = p.first
+                val e = p.second
                 sb.append(text, lastEnd, s)
                 sb.append(String.format(PH, i + 1))
                 lastEnd = e
