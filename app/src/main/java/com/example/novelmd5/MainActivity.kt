@@ -1,6 +1,5 @@
 package com.example.novelmd5
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -83,14 +82,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         findViewById<Button>(R.id.btnPickImgDir).setOnClickListener {
-            pickTarget = "imgDir"; pickDir.launch(null)
+            pickTarget = "imgDir"; pickDir.launch(arrayOf("*/*"))
         }
         findViewById<Button>(R.id.btnPickNovel).setOnClickListener {
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "text/*"
-            }
-            pickText.launch(intent)
+            pickText.launch(arrayOf("text/*"))
         }
         findViewById<Button>(R.id.btnPickMd5Dir).setOnClickListener {
             pickTarget = "md5Dir"; pickDir.launch(null)
