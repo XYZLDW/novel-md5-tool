@@ -120,7 +120,7 @@ object TaskRunner {
      *  2) SAF openOutputStream 直写你选的目录（部分 ROM 可用）
      *  3) 兜底：公共 下载/（API 29+ 走 MediaStore，旧版走 File）
      */
-    private fun writeOutput(
+    private suspend fun writeOutput(
         resolver: ContentResolver,
         outTree: android.net.Uri?,
         outName: String,
@@ -157,7 +157,7 @@ object TaskRunner {
                 val values = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, outName)
                     put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                    put(MediaStore.Downloads.RELATIVE_PATH, MediaStore.Downloads.RELATIVE_PATH_DOWNLOADS)
+                    put(MediaStore.Downloads.RELATIVE_PATH, "Download")
                 }
                 val newUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     ?: throw java.io.FileNotFoundException("MediaStore insert 返回 null")
