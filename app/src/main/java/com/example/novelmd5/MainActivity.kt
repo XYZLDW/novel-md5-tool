@@ -182,6 +182,8 @@ class MainActivity : AppCompatActivity() {
                 val res = NovelTask.process(novelText, md5s)
 
                 // 5. 输出（IO + 捕获异常，失败不崩，只在界面提示）
+                // 用 ContentResolver.insert + buildChildDocumentsUri 创建文档（SAF 标准最兼容做法，
+                // 比静态 DocumentsContract.createDocument 稳，后者在部分 ROM 带中文路径时报 Invalid URI）。
                 var outMsg = "（未选输出目录，未写出文件）"
                 if (outTree != null) {
                     outMsg = withContext(io) {
@@ -190,9 +192,14 @@ class MainActivity : AppCompatActivity() {
                             val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
                             val baseName = try { displayName(novel) } catch (_: Exception) { "novel" }
                             val outName = baseName.removeSuffix(".txt") + "_filled.txt"
-                            val newFile = DocumentsContract.createDocument(
-                                contentResolver, outDir, parentDocId, outName
-                            ) ?: throw java.io.FileNotFoundException("无法在输出目录创建文件")
+
+                            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(outDir, parentDocId)
+                            val values = android.content.ContentValues().apply {
+                                put(DocumentsContract.Document.COLUMN_DISPLAY_NAME, outName)
+                                put(DocumentsContract.Document.COLUMN_MIME_TYPE, "text/plain")
+                            }
+                            val newFile = contentResolver.insert(childUri, values)
+                                ?: throw java.io.FileNotFoundException("无法在输出目录创建文件")
                             contentResolver.openOutputStream(newFile)?.use { out ->
                                 out.write(res.text.encodeToByteArray())
                             }
