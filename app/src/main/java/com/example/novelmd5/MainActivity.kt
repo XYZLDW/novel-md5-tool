@@ -121,7 +121,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            val res = RenameTask.run(contentResolver, tree, images) { done, total ->
+            val res = RenameTask.run(tree, images, contentResolver) { done, total ->
                 progress.text = "进度 $done / $total"
             }
             progress.text = buildString {
@@ -175,16 +175,22 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
+            // 纯逻辑替换
+            val res = NovelTask.process(novelText, md5s)
+
             // 输出：写到 outTree（未选则不写出，只返回替换文本）
             var outFile: Uri? = null
-            if (outDir != null) {
+            if (outTree != null) {
+                val outDir = outTree!!
                 val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
                 val parentUri = DocumentsContract.buildChildDocumentsUriUsingTree(outDir, parentDocId)
+                val outName = displayName(novel).removeSuffix(".txt") + "_filled.txt"
+                // createDocument(resolver, parentTreeUri, parentDocId, displayName)
                 outFile = DocumentsContract.createDocument(
-                    contentResolver, parentUri, outDir.name, outName
+                    contentResolver, outDir, parentDocId, outName
                 )
                 if (outFile != null) {
-                    contentResolver.openOutputStream(outFile!!)?.use { out ->
+                    contentResolver.openOutputStream(outFile)?.use { out ->
                         out.write(res.text.encodeToByteArray())
                     }
                 }
