@@ -47,7 +47,7 @@ object RenameTask {
                 // 1. 读内容算 MD5
                 val md = resolver.openInputStream(doc.uri)?.use { Md5.ofStream(it) }
                     ?: throw IllegalStateException("读不到内容")
-                val ext = doc.name.substringAfterLast('.', missingIfAbsent = "bin").uppercase()
+                val ext = doc.name.substringAfterLast('.', "bin").uppercase()
                 val targetName = "$md.$ext"
 
                 // createDocument(resolver, parentTreeUri, parentDocId, displayName)
