@@ -175,26 +175,19 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            // 输出：优先 outTree，否则写到小说所在目录
-            val outDir = outTree ?: parentDirOf(novel)
-            val outName = novelName(novel).removeSuffix(".txt") + "_filled.txt"
-
-            val res = NovelTask.process(novelText, md5s)
-            val outFile = if (outDir != null) {
-                val parentUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                    outDir, DocumentsContract.getTreeDocumentId(outDir)
+            // 输出：写到 outTree（未选则不写出，只返回替换文本）
+            var outFile: Uri? = null
+            if (outDir != null) {
+                val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
+                val parentUri = DocumentsContract.buildChildDocumentsUriUsingTree(outDir, parentDocId)
+                outFile = DocumentsContract.createDocument(
+                    contentResolver, parentUri, outDir.name, outName
                 )
-                DocumentsContract.createDocument(contentResolver, parentUri, outName)
-                    ?: run {
-                        findViewById<TextView>(R.id.tvNovelResult).text = "无法创建输出文件"
-                        return@launch
+                if (outFile != null) {
+                    contentResolver.openOutputStream(outFile!!)?.use { out ->
+                        out.write(res.text.encodeToByteArray())
                     }
-                contentResolver.openOutputStream(outFile)?.use { out ->
-                    out.write(res.text.encodeToByteArray())
                 }
-                outFile
-            } else {
-                null
             }
 
             findViewById<TextView>(R.id.tvNovelResult).text = buildString {
@@ -203,7 +196,9 @@ class MainActivity : AppCompatActivity() {
                 append("已替换：").append(res.filled).append('\n')
                 if (res.unfilled > 0) append("未替换（md5 不够）：").append(res.unfilled).append('\n')
                 if (res.remainingMd5 > 0) append("未用完 md5：").append(res.remainingMd5).append('\n')
-                append("输出文件：").append(if (outFile != null) displayName(outFile) else "(未指定输出目录，未写出文件)")
+                append("输出文件：").append(
+                    if (outFile != null) displayName(outFile!!) else "(未选输出目录，未写出文件)"
+                )
             }
             Toast.makeText(this@MainActivity, "替换完成，成功 ${res.filled} 个", Toast.LENGTH_SHORT).show()
         }
