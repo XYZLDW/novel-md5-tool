@@ -72,7 +72,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        val IMG_EXTS = listOf(".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".heic", ".tiff")
+        val IMG_EXTS =
+            listOf(".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".heic", ".tiff", ".ipg")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,7 +111,7 @@ class MainActivity : AppCompatActivity() {
         progress.text = "正在计算 MD5 并改名…"
 
         scope.launch {
-            // 通过 SAF 列举所有图片子文档
+            // 通过 SAF 列举所有图片子文档（递归，含子文件夹）
             val all = listImageDocs(tree)
             val images = all.filter {
                 IMG_EXTS.any { ext -> it.name.lowercase().endsWith(ext) }
@@ -121,7 +122,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
 
-            val res = RenameTask.run(tree, images, contentResolver) { done, total ->
+            val res = RenameTask.run(images, contentResolver) { done, total ->
                 progress.text = "进度 $done / $total"
             }
             progress.text = buildString {
@@ -212,27 +213,47 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- SAF 工具 ----------
 
-    /** 列出某 tree 下所有子文档（不过滤）。 */
+    /** 递归列出某 tree 下所有子文档（含子文件夹里的图片），每个文档记录它所在的目录。 */
     private fun listImageDocs(tree: Uri): List<RenameTask.ImgDoc> {
-        val docId = DocumentsContract.getTreeDocumentId(tree)
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
-        val docs = mutableListOf<RenameTask.ImgDoc>()
-        contentResolver.query(
-            childrenUri,
-            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                   DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-            null, null, null
-        )?.use { c ->
-            val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            while (c.moveToNext()) {
-                val name = c.getString(nameIdx)
-                val childDocId = c.getString(idIdx)
-                val childUri = DocumentsContract.buildDocumentUriUsingTree(tree, childDocId)
-                docs.add(RenameTask.ImgDoc(childUri, name))
+        val results = mutableListOf<RenameTask.ImgDoc>()
+        // 用栈做 DFS，避免深层嵌套递归爆栈。
+        // 栈里存的是"以某文档为根的 tree"，用于继续递归它的子目录。
+        val stack = ArrayDeque<Uri>()
+        stack.addLast(tree)
+        while (stack.isNotEmpty()) {
+            val cur = stack.removeLast()
+            val curDocId = DocumentsContract.getTreeDocumentId(cur)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(cur, curDocId)
+            contentResolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                       DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                       DocumentsContract.Document.COLUMN_MIME_TYPE),
+                null, null, null
+            )?.use { c ->
+                val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val mimeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                while (c.moveToNext()) {
+                    val name = c.getString(nameIdx)
+                    val childDocId = c.getString(idIdx)
+                    val mime = c.getString(mimeIdx)
+                    val childUri = DocumentsContract.buildDocumentUriUsingTree(cur, childDocId)
+                    val mimeLower = mime?.lowercase() ?: ""
+                    // 文件夹 → 构造"以该子文件夹为根"的 tree，入栈继续递归。
+                    // 注意：externalstorage provider 返回的 childDocId 是**绝对** docId
+                    // （形如 "primary:书籍/阅读导出用/子目录"），直接作为新 tree 的 documentId，
+                    // 不要再去拼 "$curDocId/$childDocId"（拼了会报 Invalid URI）。
+                    if (mimeLower == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        val subTree = DocumentsContract.buildTreeDocumentUri(cur.authority, childDocId)
+                        stack.addLast(subTree)
+                    }
+                    // 文件 → 记录；parentTree=cur（它实际所在目录的 tree），parentDocId=curDocId
+                    results.add(RenameTask.ImgDoc(childUri, name, cur, curDocId))
+                }
             }
         }
-        return docs
+        return results
     }
 
     /** 统计某 tree 下图片数量（用于选完立即显示）。 */
