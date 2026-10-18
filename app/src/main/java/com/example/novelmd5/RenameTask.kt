@@ -25,12 +25,16 @@ object RenameTask {
      *  - name        = 原始显示名
      *  - parentTree  = 该文档**实际所在目录**对应的 tree URI（低版本 create+copy+delete 需要）
      *  - parentDocId = 该目录在 provider 里的绝对 documentId
+     *  - mtime       = 最后修改时间（ms，未知为 0）—— 功能2 排序用
+     *  - size        = 文件大小（字节，未知为 0）—— 功能2 排序用
      */
     data class ImgDoc(
         val uri: Uri,
         val name: String,
         val parentTree: Uri,
-        val parentDocId: String
+        val parentDocId: String,
+        val mtime: Long = 0L,
+        val size: Long = 0L
     )
 
     /**
