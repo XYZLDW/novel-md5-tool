@@ -182,28 +182,42 @@ class MainActivity : AppCompatActivity() {
                 val res = NovelTask.process(novelText, md5s)
 
                 // 5. 输出（IO + 捕获异常，失败不崩，只在界面提示）
-                // iQOO externalstorage provider 拒绝 createDocument / insert 两条官方建文件通道。
-                // 改走"直接 document URI + openOutputStream(wt)"：把 tree 的 docId 拼上新文件名，
-                // 构造出目标文档 URI，直接以写模式打开（provider 对 tree 有写权限时会自动建文件）。
-                // renameDocument 在该 provider 上可用，说明同 tree 内的文档操作是通的。
+                // 优先写你选的输出目录；写不了（iQOO 等 ROM 拒绝 SAF 建文件/写流）就落到
+                // /sdcard/Download/（公共下载目录，任何 ROM 都允许，不依赖 SAF 写授权）。
                 var outMsg = "（未写出文件）"
+                val baseName = try { displayName(novel) } catch (_: Exception) { "novel" }
+                val outName = baseName.removeSuffix(".txt") + "_filled.txt"
+                val outBytes = res.text.encodeToByteArray()
+
+                // 5a. 先试写你选的输出目录
+                var wrote = false
                 if (outTree != null) {
-                    outMsg = withContext(io) {
+                    wrote = withContext(io) {
                         try {
                             val outDir = outTree!!
-                            val baseName = try { displayName(novel) } catch (_: Exception) { "novel" }
-                            val outName = baseName.removeSuffix(".txt") + "_filled.txt"
-                            val outBytes = res.text.encodeToByteArray()
-
-                            // 目标 docId = tree 自身 docId + "/" + 新文件名
                             val treeDocId = DocumentsContract.getTreeDocumentId(outDir)
-                            val targetDocId = "$treeDocId/$outName"
-                            val targetUri = DocumentsContract.buildDocumentUri(outDir.authority, targetDocId)
-
-                            val opened = contentResolver.openOutputStream(targetUri, "wt")
-                                ?.use { out -> out.write(outBytes) } != null
-                            if (opened) "已写出到 输出目录：$outName"
-                            else "输出目录无法写入（provider 拒绝了写流）"
+                            val targetUri = DocumentsContract.buildDocumentUri(outDir.authority, "$treeDocId/$outName")
+                            contentResolver.openOutputStream(targetUri, "wt")?.use { out ->
+                                out.write(outBytes)
+                            } != null
+                        } catch (e: Exception) {
+                            false
+                        }
+                    }
+                }
+                if (wrote) {
+                    outMsg = "已写出到 你选的输出目录：$outName"
+                } else {
+                    // 5b. 兜底：写公共下载目录
+                    outMsg = withContext(io) {
+                        try {
+                            val dlDir = android.os.Environment.getExternalStoragePublicDirectory(
+                                android.os.Environment.DIRECTORY_DOWNLOADS
+                            )
+                            val f = java.io.File(dlDir, outName)
+                            if (!dlDir.exists()) dlDir.mkdirs()
+                            f.writeBytes(outBytes)
+                            "输出目录写不了，已改写到 下载/：$outName"
                         } catch (e: Exception) {
                             "输出失败：${e.message}"
                         }
