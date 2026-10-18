@@ -22,23 +22,18 @@ object RenameTask {
     data class ImgDoc(val uri: Uri, val name: String)
 
     /**
-     * SAF 版重命名：
-     *  1. 读 doc.uri 内容 → 算 MD5 → 新文件名 = MD5.扩展名
-     *  2. 在 tree 下 createDocument(新文件名) → 写入原内容 → delete 旧 doc
+     * SAF 重命名（原生 API）：
+     *  对每个图片文档：读内容 → 算 MD5 → 新名 = MD5.扩展名
+     *  → DocumentsContract.renameDocument(resolver, docUri, newName)
      *
-     * 之所以不直接"改名"，是因为 DocumentsContract 不提供 rename API，
-     * 标准做法就是 create+copy+delete 三段。
+     * renameDocument 是 DocumentsContract 官方 API（API 30+），
+     * 直接在原 tree 里改名，不删旧、不拷新，比 create+copy+delete 更稳。
      */
     suspend fun run(
         resolver: ContentResolver,
-        tree: Uri,
         imageDocs: List<ImgDoc>,
         onProgress: (Int, Int) -> Unit
     ): Result = withContext(Dispatchers.IO) {
-        val parentUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            tree, DocumentsContract.getTreeDocumentId(tree)
-        )
-
         var ok = 0
         var fail = 0
         val failures = mutableListOf<String>()
@@ -50,12 +45,10 @@ object RenameTask {
                 val ext = doc.name.substringAfterLast('.', missingIfAbsent = "bin").uppercase()
                 val targetName = "$md.$ext"
 
-                val newUri = DocumentsContract.createDocument(resolver, parentUri, targetName)
-                    ?: throw IllegalStateException("createDocument 失败")
-                resolver.openInputStream(doc.uri)?.use { input ->
-                    resolver.openOutputStream(newUri)?.use { output -> input.copyTo(output) }
-                }
-                resolver.delete(doc.uri, null, null)
+                // 原生改名
+                val newUri = DocumentsContract.renameDocument(resolver, doc.uri, targetName)
+                    ?: throw IllegalStateException("renameDocument 返回 null")
+                // newUri 即改名后的文档 URI；确认它存在
                 ok++
             } catch (e: Exception) {
                 fail++
