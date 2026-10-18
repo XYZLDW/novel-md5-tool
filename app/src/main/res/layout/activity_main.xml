@@ -138,12 +138,54 @@
             android:id="@+id/tvMd5OrderHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="⚠️ 图片文件夹按【文件名排序】依次提供 MD5。\n请确认文件夹内文件名顺序 = 你期望填入小说的顺序（如 0001、0002… 排号），否则会填乱。"
+            android:text="⚠️ 请选【图片排序方式】决定 MD5 填入顺序，与小说里 img 出现顺序对应。"
             android:textSize="12sp"
             android:textColor="#FF8F00"
             android:lineSpacingExtra="2dp"
             android:background="#11FF8F00"
             android:padding="6dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="排序方式："
+                android:textSize="13sp" />
+
+            <Spinner
+                android:id="@+id/spinnerMd5Order"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:entries="@array/md5_order_entries" />
+        </LinearLayout>
+
+        <!-- 全部文件访问授权（功能2 直接写你选的目录用） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvAllFilesStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="未授权「全部文件访问」（功能2 结果将写到 下载/ 目录）"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnGrantAllFiles"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="去授权" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnDoNovel"
