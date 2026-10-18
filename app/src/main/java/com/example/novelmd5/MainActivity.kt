@@ -182,28 +182,28 @@ class MainActivity : AppCompatActivity() {
                 val res = NovelTask.process(novelText, md5s)
 
                 // 5. 输出（IO + 捕获异常，失败不崩，只在界面提示）
-                // 用 ContentResolver.insert + buildChildDocumentsUri 创建文档（SAF 标准最兼容做法，
-                // 比静态 DocumentsContract.createDocument 稳，后者在部分 ROM 带中文路径时报 Invalid URI）。
-                var outMsg = "（未选输出目录，未写出文件）"
+                // iQOO externalstorage provider 拒绝 createDocument / insert 两条官方建文件通道。
+                // 改走"直接 document URI + openOutputStream(wt)"：把 tree 的 docId 拼上新文件名，
+                // 构造出目标文档 URI，直接以写模式打开（provider 对 tree 有写权限时会自动建文件）。
+                // renameDocument 在该 provider 上可用，说明同 tree 内的文档操作是通的。
+                var outMsg = "（未写出文件）"
                 if (outTree != null) {
                     outMsg = withContext(io) {
                         try {
                             val outDir = outTree!!
-                            val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
                             val baseName = try { displayName(novel) } catch (_: Exception) { "novel" }
                             val outName = baseName.removeSuffix(".txt") + "_filled.txt"
+                            val outBytes = res.text.encodeToByteArray()
 
-                            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(outDir, parentDocId)
-                            val values = android.content.ContentValues().apply {
-                                put(DocumentsContract.Document.COLUMN_DISPLAY_NAME, outName)
-                                put(DocumentsContract.Document.COLUMN_MIME_TYPE, "text/plain")
-                            }
-                            val newFile = contentResolver.insert(childUri, values)
-                                ?: throw java.io.FileNotFoundException("无法在输出目录创建文件")
-                            contentResolver.openOutputStream(newFile)?.use { out ->
-                                out.write(res.text.encodeToByteArray())
-                            }
-                            outName
+                            // 目标 docId = tree 自身 docId + "/" + 新文件名
+                            val treeDocId = DocumentsContract.getTreeDocumentId(outDir)
+                            val targetDocId = "$treeDocId/$outName"
+                            val targetUri = DocumentsContract.buildDocumentUri(outDir.authority, targetDocId)
+
+                            val opened = contentResolver.openOutputStream(targetUri, "wt")
+                                ?.use { out -> out.write(outBytes) } != null
+                            if (opened) "已写出到 输出目录：$outName"
+                            else "输出目录无法写入（provider 拒绝了写流）"
                         } catch (e: Exception) {
                             "输出失败：${e.message}"
                         }
