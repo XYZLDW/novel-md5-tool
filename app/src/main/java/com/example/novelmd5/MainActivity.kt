@@ -93,6 +93,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshAllFilesStatus()
+        // 回显任务结果（TaskRunner 是进程级单例，锁屏/切回来结果还在）
+        TaskRunner.renameResult?.let {
+            findViewById<TextView>(R.id.tvRenameResult).text = it
+        }
+        TaskRunner.novelResult?.let {
+            findViewById<TextView>(R.id.tvNovelResult).text = it
+        }
+        if (TaskRunner.running) startResultPolling()
     }
 
     /** 「全部文件访问」授权状态。 */
@@ -109,15 +117,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun grantAllFiles() {
-        if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-            } catch (e: Exception) {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:$packageName")))
-            }
-        } else {
+        if (Build.VERSION.SDK_INT < 30) {
             Toast.makeText(this, "Android 11 以下无需此授权", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 优先跳"本应用"的详情页（iQOO/OriginOS 总列表页常不显示 sideload 应用）
+        try {
+            val appIntent = Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            if (appIntent.resolveActivity(packageManager) != null) {
+                startActivity(appIntent)
+                return
+            }
+        } catch (_: Exception) { /* 落到总列表 */ }
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法打开授权页：${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -125,21 +143,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnDoNovel).isEnabled = novelUri != null && md5Tree != null
     }
 
-    // ---------- 功能1（交给后台服务，锁屏/切后台继续跑） ----------
+    // ---------- 功能1（进程级 TaskRunner，锁屏/切后台继续跑） ----------
     private fun startRename() {
         val tree = imgTree ?: run {
             Toast.makeText(this, "请先选择图片文件夹", Toast.LENGTH_SHORT).show(); return
         }
-        findViewById<TextView>(R.id.tvRenameResult).text = "已提交后台任务，见通知栏进度…"
-        ensurePostNotifications()
-        val i = Intent(this, TaskService::class.java)
-            .setAction(TaskService.ACTION_RENAME)
-            .putExtra(TaskService.EXTRA_TREE, tree)
-        if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
+        findViewById<TextView>(R.id.tvRenameResult).text = "已提交后台任务，正在处理…"
+        TaskRunner.startRename(contentResolver, tree)
+        startResultPolling()
         Toast.makeText(this, "重命名已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
     }
 
-    // ---------- 功能2（交给后台服务） ----------
+    // ---------- 功能2（进程级 TaskRunner） ----------
     private fun startNovel() {
         val novel = novelUri ?: run {
             Toast.makeText(this, "请先选择小说 txt", Toast.LENGTH_SHORT).show(); return
@@ -148,27 +163,29 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "请先选择图片文件夹", Toast.LENGTH_SHORT).show(); return
         }
         val sortIdx = findViewById<android.widget.Spinner>(R.id.spinnerMd5Order).selectedItemPosition
-        findViewById<TextView>(R.id.tvNovelResult).text = "已提交后台任务，见通知栏进度…"
-        ensurePostNotifications()
-        val i = Intent(this, TaskService::class.java)
-            .setAction(TaskService.ACTION_NOVEL)
-            .putExtra(TaskService.EXTRA_NOVEL, novel)
-            .putExtra(TaskService.EXTRA_MD5TREE, tree)
-            .putExtra(TaskService.EXTRA_OUTTREE, outTree)
-            .putExtra(TaskService.EXTRA_SORT, sortIdx)
-        if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
+        findViewById<TextView>(R.id.tvNovelResult).text = "已提交后台任务，正在处理…"
+        TaskRunner.startNovel(contentResolver, novel, tree, outTree, sortIdx)
+        startResultPolling()
         Toast.makeText(this, "替换已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
     }
 
-    /** Android 13+ 需要通知权限，否则前台服务通知不显示。 */
-    private fun ensurePostNotifications() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100
-            )
+    /** 轮询 TaskRunner 结果并回显到界面（任务在进程级跑，界面只是显示器）。 */
+    private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            val r = TaskRunner.renameResult
+            val n = TaskRunner.novelResult
+            if (r != null) findViewById<TextView>(R.id.tvRenameResult).text = r
+            if (n != null) findViewById<TextView>(R.id.tvNovelResult).text = n
+            if (TaskRunner.running) {
+                pollHandler.postDelayed(this, 500)
+            }
         }
+    }
+
+    private fun startResultPolling() {
+        TaskRunner.running = true
+        pollHandler.removeCallbacks(pollRunnable)
+        pollHandler.post(pollRunnable)
     }
 }
