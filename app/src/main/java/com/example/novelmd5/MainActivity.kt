@@ -146,68 +146,76 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "请先选择图片文件夹", Toast.LENGTH_SHORT).show(); return
         }
 
-        val all = listImageDocs(tree)
-        val images = all.filter {
-            IMG_EXTS.any { ext -> it.name.lowercase().endsWith(ext) }
-        }.sortedBy { it.name.lowercase() }
-
-        if (images.isEmpty()) {
-            findViewById<TextView>(R.id.tvNovelResult).text = "所选文件夹里没有图片"
-            return
-        }
-
-        findViewById<TextView>(R.id.tvNovelResult).text = "正在读取 ${images.size} 张图的 MD5…"
+        val resultView = findViewById<TextView>(R.id.tvNovelResult)
+        resultView.text = "正在扫描图片…"
         scope.launch {
-            // 通过 SAF 读图片字节算 MD5（不依赖真实路径）
-            val md5s = withContext(io) {
-                images.map { doc ->
-                    contentResolver.openInputStream(doc.uri)?.use { input ->
-                        Md5.ofStream(input)
-                    } ?: ""
+            try {
+                // 1. 递归列图（IO，避免主线程卡死）
+                val all = withContext(io) { listImageDocs(tree) }
+                val images = all.filter {
+                    IMG_EXTS.any { ext -> it.name.lowercase().endsWith(ext) }
+                }.sortedBy { it.name.lowercase() }
+
+                if (images.isEmpty()) {
+                    resultView.text = "所选文件夹里没有图片"
+                    return@launch
                 }
-            }.filter { it.isNotEmpty() }
 
-            // 读小说 txt 内容
-            val novelText = withContext(io) {
-                contentResolver.openInputStream(novel)?.use { it.readBytes() }?.decodeToString() ?: ""
-            }
-            if (novelText.isEmpty()) {
-                findViewById<TextView>(R.id.tvNovelResult).text = "读不到小说 txt 内容"
-                return@launch
-            }
+                resultView.text = "正在读取 ${images.size} 张图的 MD5…"
+                // 2. 读图片算 MD5（IO）
+                val md5s = withContext(io) {
+                    images.map { doc ->
+                        contentResolver.openInputStream(doc.uri)?.use { Md5.ofStream(it) } ?: ""
+                    }.filter { it.isNotEmpty() }
+                }
 
-            // 纯逻辑替换
-            val res = NovelTask.process(novelText, md5s)
+                // 3. 读小说（IO）
+                val novelText = withContext(io) {
+                    contentResolver.openInputStream(novel)?.use { it.readBytes() }?.decodeToString() ?: ""
+                }
+                if (novelText.isEmpty()) {
+                    resultView.text = "读不到小说 txt 内容"
+                    return@launch
+                }
 
-            // 输出：写到 outTree（未选则不写出，只返回替换文本）
-            var outFile: Uri? = null
-            if (outTree != null) {
-                val outDir = outTree!!
-                val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
-                val parentUri = DocumentsContract.buildChildDocumentsUriUsingTree(outDir, parentDocId)
-                val outName = displayName(novel).removeSuffix(".txt") + "_filled.txt"
-                // createDocument(resolver, parentTreeUri, parentDocId, displayName)
-                outFile = DocumentsContract.createDocument(
-                    contentResolver, outDir, parentDocId, outName
-                )
-                if (outFile != null) {
-                    contentResolver.openOutputStream(outFile)?.use { out ->
-                        out.write(res.text.encodeToByteArray())
+                // 4. 纯逻辑替换
+                val res = NovelTask.process(novelText, md5s)
+
+                // 5. 输出（IO + 捕获异常，失败不崩，只在界面提示）
+                var outMsg = "（未选输出目录，未写出文件）"
+                if (outTree != null) {
+                    outMsg = withContext(io) {
+                        try {
+                            val outDir = outTree!!
+                            val parentDocId = DocumentsContract.getTreeDocumentId(outDir)
+                            val baseName = try { displayName(novel) } catch (_: Exception) { "novel" }
+                            val outName = baseName.removeSuffix(".txt") + "_filled.txt"
+                            val newFile = DocumentsContract.createDocument(
+                                contentResolver, outDir, parentDocId, outName
+                            ) ?: throw java.io.FileNotFoundException("无法在输出目录创建文件")
+                            contentResolver.openOutputStream(newFile)?.use { out ->
+                                out.write(res.text.encodeToByteArray())
+                            }
+                            outName
+                        } catch (e: Exception) {
+                            "输出失败：${e.message}"
+                        }
                     }
                 }
-            }
 
-            findViewById<TextView>(R.id.tvNovelResult).text = buildString {
-                append("完成。\n")
-                append("小说里 img 标签总数：").append(res.totalImgs).append('\n')
-                append("已替换：").append(res.filled).append('\n')
-                if (res.unfilled > 0) append("未替换（md5 不够）：").append(res.unfilled).append('\n')
-                if (res.remainingMd5 > 0) append("未用完 md5：").append(res.remainingMd5).append('\n')
-                append("输出文件：").append(
-                    if (outFile != null) displayName(outFile!!) else "(未选输出目录，未写出文件)"
-                )
+                // 6. 显示结果（主线程）
+                resultView.text = buildString {
+                    append("完成。\n")
+                    append("小说里 img 标签总数：").append(res.totalImgs).append('\n')
+                    append("已替换：").append(res.filled).append('\n')
+                    if (res.unfilled > 0) append("未替换（md5 不够）：").append(res.unfilled).append('\n')
+                    if (res.remainingMd5 > 0) append("未用完 md5：").append(res.remainingMd5).append('\n')
+                    append("输出：").append(outMsg)
+                }
+                Toast.makeText(this@MainActivity, "替换完成，成功 ${res.filled} 个", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                resultView.text = "出错：${e.message}"
             }
-            Toast.makeText(this@MainActivity, "替换完成，成功 ${res.filled} 个", Toast.LENGTH_SHORT).show()
         }
     }
 
