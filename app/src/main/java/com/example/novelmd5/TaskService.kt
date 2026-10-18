@@ -124,7 +124,6 @@ class TaskService : Service() {
         val outName = baseName.removeSuffix(".txt") + "_filled.txt"
         val outBytes = res.text.encodeToByteArray()
         val outMsg = writeOutput(outTree, outName, outBytes)
-
         lastOutputFile = outMsg
         val msg = buildString {
             append("替换完成。img 总数 ").append(res.totalImgs)
@@ -137,7 +136,7 @@ class TaskService : Service() {
     }
 
     /** 输出落盘：优先用户选的目录（File API，需全部文件访问），失败退回下载目录。 */
-    private fun writeOutput(outTree: android.net.Uri?, outName: String, bytes: ByteArray): String {
+    private suspend fun writeOutput(outTree: android.net.Uri?, outName: String, bytes: ByteArray): String {
         return withContext(Dispatchers.IO) {
             // 1) 授权了全部文件访问 且 能映射到真实路径 → 直接写你选的目录
             if (outTree != null && DocUtils.isExternalStorageManager()) {
