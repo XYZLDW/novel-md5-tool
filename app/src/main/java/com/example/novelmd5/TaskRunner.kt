@@ -1,8 +1,11 @@
 package com.example.novelmd5
 
 import android.content.ContentResolver
+import android.content.ContentValues
+import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,7 +17,7 @@ import java.io.File
  * 进程级任务运行器（object 单例）：
  *  - 任务跑在进程级 scope（SupervisorJob），Activity 销毁 / 锁屏 / 切后台都不中断
  *  - 不依赖前台服务、通知权限（避开 iQOO ROM 对 FGS 的各种限制）
- *  - 结果存到 lastResult / lastOutputFile，Activity 返回后读取刷新界面
+ *  - 结果存到单例字段，Activity 返回后读取刷新界面
  */
 object TaskRunner {
 
@@ -111,7 +114,12 @@ object TaskRunner {
         }
     }
 
-    /** 输出落盘：优先用户选的目录（File API，需全部文件访问），失败退回下载目录。 */
+    /**
+     * 输出落盘，三级策略：
+     *  1) 已授「全部文件访问」→ File API 直接写你选的目录
+     *  2) SAF openOutputStream 直写你选的目录（部分 ROM 可用）
+     *  3) 兜底：公共 下载/（API 29+ 走 MediaStore，旧版走 File）
+     */
     private fun writeOutput(
         resolver: ContentResolver,
         outTree: android.net.Uri?,
@@ -142,17 +150,17 @@ object TaskRunner {
                 }
             } catch (_: Exception) { /* 落到下载目录 */ }
         }
-        // 3) 兜底：公共下载目录（Android 10+ 用 MediaStore，10 以下用 File）
+        // 3) 兜底：公共下载目录
         try {
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                val values = android.content.ContentValues().apply {
-                    put(Environment.MEDIA_STORE_TITLE, outName)
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, outName)
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
+            if (Build.VERSION.SDK_INT >= 29) {
+                // API 29+：MediaStore Downloads（RELATIVE_PATH=Download，任何 ROM 都允许）
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, outName)
+                    put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                    put(MediaStore.Downloads.RELATIVE_PATH, MediaStore.Downloads.RELATIVE_PATH_DOWNLOADS)
                 }
-                val newUri = resolver.insert(
-                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-                ) ?: throw java.io.FileNotFoundException("MediaStore insert 返回 null")
+                val newUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: throw java.io.FileNotFoundException("MediaStore insert 返回 null")
                 resolver.openOutputStream(newUri)?.use { it.write(bytes) }
                     ?: throw java.io.FileNotFoundException("打不开 MediaStore 流")
                 return@withContext "输出目录写不了，已改写到 下载/：$outName"
