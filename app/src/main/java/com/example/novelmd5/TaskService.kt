@@ -58,7 +58,8 @@ class TaskService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // 先同步 startForeground（占位），保证 5 秒窗口内完成，不会被系统当"后台启动"杀。
-        // iQOO 等 ROM 可能拒绝 sideload 应用的前台服务 → 包 try/catch，失败就降级为普通 startService 行为。
+        // 第一遍就要弹通知——若 3 参（带 FOREGROUND_SERVICE_TYPE）被 ROM 拒，立即回落 2 参版本，
+        // 不再静默吞掉（之前第一遍不弹通知就是这个 catch 吞了异常）。
         try {
             startForeground(
                 NOT_ID,
@@ -67,11 +68,14 @@ class TaskService : Service() {
             )
             fgOk = true
         } catch (e: Exception) {
-            // 前台服务被 ROM 拒绝：仍尝试继续跑任务（普通后台），但不再保活。
-            // 记到结果里让界面能看到。
             try {
-                startForeground(NOT_ID, buildNote("前台被拒，后台执行中…", ongoing = true))
-            } catch (_: Exception) { /* 彻底不行就算了，任务继续跑 */ }
+                startForeground(NOT_ID, buildNote("准备中…", ongoing = true))
+                fgOk = true
+            } catch (_: Exception) {
+                // 彻底不行：任务仍跑（后台），但无保活
+                try { nm.notify(NOT_ID, buildNote("准备中…（无前台保护）", ongoing = false)) }
+                catch (_: Exception) { }
+            }
         }
         when (intent?.action) {
             ACTION_RENAME -> {
@@ -240,7 +244,8 @@ class TaskService : Service() {
     }
 
     /**
-     * 在某 tree 内把结果 txt 写进去，依次试 4 种 DocumentsContract API：
+     * 在某 tree 内把结果 txt 写进去。
+     * 先处理"已存在同名文件"（覆盖，避免重复生成）；再依次试 4 种新建方式：
      *  a) createDocument 建空文档再写内容
      *  b) openOutputStream(newDocUri,"wt") 直接新建
      *  c) createDocument 临时名 → renameDocument 成目标名 → 写内容
@@ -248,6 +253,18 @@ class TaskService : Service() {
      *  成功返回该方式名；全失败返回 null（由调用方继续兜底）。
      */
     private fun writeIntoTree(tree: Uri, outName: String, bytes: ByteArray): String? {
+        val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+        // 0) 清理上一轮遗留的临时文件（_dsh_tmp_*.tmp），避免"目录里多出一堆"
+        cleanupTempDocs(tree, treeDocId)
+        // 0.5) 若已存在同名文件 → 直接覆盖，不再新建（解决"点两遍生成两个文件"）
+        val existingUri = findDocByName(tree, treeDocId, outName)
+        if (existingUri != null) {
+            try {
+                contentResolver.openOutputStream(existingUri, "w")?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("覆盖既有文件失败")
+                return "overwrite-existing"
+            } catch (_: Exception) { /* 覆盖失败就继续走新建路径 */ }
+        }
         // a) 最直接的：createDocument + 写流
         try {
             val newUri = android.provider.DocumentsContract.createDocument(
@@ -260,7 +277,6 @@ class TaskService : Service() {
         } catch (_: Exception) { /* 试 b */ }
         // b) 新 doc URI + "wt"
         try {
-            val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
             val targetUri = android.provider.DocumentsContract.buildDocumentUri(
                 tree.authority, "$treeDocId/$outName"
             )
@@ -297,7 +313,75 @@ class TaskService : Service() {
                 return "write+rename"
             }
         } catch (_: Exception) { /* 全失败 */ }
+        // 收尾：把本轮失败可能留下的临时文件清掉
+        cleanupTempDocs(tree, treeDocId)
         return null
+    }
+
+    /** 找 tree 直接子文档里 DISPLAY_NAME == name 的文档，返回其 docId 对应 Uri；没有返回 null。 */
+    private fun findDocByName(tree: Uri, treeDocId: String, name: String): Uri? {
+        try {
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+                tree, treeDocId)
+            val proj = arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+            contentResolver.query(children, proj, null, null, null)?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+                while (c.moveToNext()) {
+                    if (c.getString(nameIdx) == name) {
+                        val id = c.getString(idIdx)
+                        val mime = c.getString(mimeIdx)
+                        // 只要不是目录就命中（txt 是 text/plain 或 application/octet-stream）
+                        if (mime != android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                            return android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+        return null
+    }
+
+    /** 删掉 tree 里所有 _dsh_tmp_*.tmp 临时文档。 */
+    private fun cleanupTempDocs(tree: Uri, treeDocId: String) {
+        try {
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+                tree, treeDocId)
+            val proj = arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+            val tmpUris = mutableListOf<Uri>()
+            contentResolver.query(children, proj, null, null, null)?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeIdx = c.getColumnIndexOrThrow(
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+                while (c.moveToNext()) {
+                    val dname = c.getString(nameIdx) ?: ""
+                    if (dname.startsWith("_dsh_tmp_") &&
+                        c.getString(mimeIdx) != android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                        tmpUris.add(android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                            tree, c.getString(idIdx)))
+                    }
+                }
+            }
+            tmpUris.forEach { u ->
+                try { android.provider.DocumentsContract.deleteDocument(contentResolver, u) }
+                catch (_: Exception) { }
+            }
+        } catch (_: Exception) { }
     }
 
     private fun hasNotificationPermission(): Boolean {
