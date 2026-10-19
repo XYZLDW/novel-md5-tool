@@ -240,31 +240,24 @@ class TaskService : Service() {
         }
     }
 
-    /** 在某 tree 内用 4 种 SAF 写法依次尝试新建文件；成功返回该写法名，全失败返回 null。 */
+    /** 在某 tree 内用 3 种 SAF 写法依次尝试新建文件；成功返回该写法名，全失败返回 null。 */
     private fun tryWriteToTree(tree: Uri, outName: String, bytes: ByteArray): String? {
         val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
-        // a) createDocument（API 24+）
-        try {
-            val newUri = contentResolver.createDocument(tree, "text/plain", outName)
-            if (newUri != null) {
-                contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
-                    ?: throw java.io.FileNotFoundException("createDocument 流为 null")
-                return "createDocument"
-            }
-        } catch (_: Exception) { /* 试 b */ }
-        // b) insert（部分 ROM 支持）
+        // a) insert（部分 ROM 支持，往 child documents URI 插入新文档）
         try {
             val values = android.content.ContentValues().apply {
                 put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, outName)
             }
             val treeChildren = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
                 tree, treeDocId)
-            val newUri = contentResolver.insert(treeChildren, values) ?: return null
-            contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
-                ?: throw java.io.FileNotFoundException("insert 流为 null")
-            return "insert"
-        } catch (_: Exception) { /* 试 c */ }
-        // c) openOutputStream 新 doc URI "wt"
+            val newUri = contentResolver.insert(treeChildren, values)
+            if (newUri != null) {
+                contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("insert 流为 null")
+                return "insert"
+            }
+        } catch (_: Exception) { /* 试 b */ }
+        // b) openOutputStream 新 doc URI "wt"（最常用）
         try {
             val targetUri = android.provider.DocumentsContract.buildDocumentUri(
                 tree.authority, "$treeDocId/$outName"
@@ -274,8 +267,8 @@ class TaskService : Service() {
                 out.use { it.write(bytes) }
                 return "openOutputStream"
             }
-        } catch (_: Exception) { /* 试 d */ }
-        // d) 若目标文件已存在，用 "w" 模式覆盖
+        } catch (_: Exception) { /* 试 c */ }
+        // c) 若目标文件已存在，用默认模式覆盖
         try {
             val targetUri = android.provider.DocumentsContract.buildDocumentUri(
                 tree.authority, "$treeDocId/$outName"
