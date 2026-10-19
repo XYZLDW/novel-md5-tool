@@ -1,11 +1,8 @@
 package com.example.novelmd5
 
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.IBinder
 import android.util.Log
-import moe.shizuku.Shizuku
+import rikka.shizuku.Shizuku
 
 /**
  * Shizuku 提权封装（可选能力）：
@@ -27,10 +24,9 @@ object ShizukuHelper {
     }
 
     /**
-     * 请求 Shizuku 授权。
-     * 注意：Shizuku 授权对话框只能在持有 Activity 的进程里弹，
-     * 在 Service 里调 requestPermission 会静默失败，因此这里只 ping，不 request。
-     * 真正的授权引导由 MainActivity 的 UI 按钮触发。
+     * 请求 Shizuku 授权（v13+ 自实现权限）。
+     * 注意：必须在持有 Activity 的进程里调；Service 里会静默失败。
+     * 真正的授权引导由 MainActivity 触发；这里只做 ping + 兜底 request。
      */
     fun requestAuthorization(context: Context) {
         try {
@@ -38,9 +34,7 @@ object ShizukuHelper {
         } catch (e: Exception) {
             Log.w(TAG, "Shizuku requestAuthorization failed: ${e.message}")
         }
-    }
-
-    /** 用 shell 提权把字节写到真实文件路径。成功返回 true。 */
+    }    /** 用 shell 提权把字节写到真实文件路径。成功返回 true。 */
     fun writeViaShell(realPath: String, bytes: ByteArray): Boolean {
         try {
             if (Shizuku.pingBinder() == null) return false
