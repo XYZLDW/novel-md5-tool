@@ -5,6 +5,8 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -22,6 +24,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 后台任务前台服务：锁屏/切后台/划掉任务都继续跑，通知栏显示进度 -->
+        <service
+            android:name=".TaskService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 
