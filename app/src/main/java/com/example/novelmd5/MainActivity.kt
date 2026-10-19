@@ -115,8 +115,10 @@ class MainActivity : AppCompatActivity() {
         checkNovelReady()
     }
 
+    /** Shizuku 授权结果回来（1001）：刷新可用性状态。 */
     override fun onResume() {
         super.onResume()
+        if (TaskService.instance()?.running == true) pollHandler.post(pollRunnable)
         TaskService.instance()?.let { svc ->
             svc.renameResult?.let {
                 findViewById<TextView>(R.id.tvRenameResult).text = it
@@ -125,7 +127,36 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.tvNovelResult).text = it
             }
         }
-        if (TaskService.instance()?.running == true) pollHandler.post(pollRunnable)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            // 通知权限
+            100 -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(
+                        this, "通知权限已允许，重按一次「开始」即可看到通知栏",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            // Shizuku 权限（moe.shizuku:permission）
+            1001 -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(
+                        this, "Shizuku 提权已允许：功能2 结果可直接写你指定的目录",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -186,6 +217,10 @@ class MainActivity : AppCompatActivity() {
         }
         val sortIdx = findViewById<android.widget.Spinner>(R.id.spinnerMd5Order).selectedItemPosition
         findViewById<TextView>(R.id.tvNovelResult).text = "已提交，看通知栏进度…"
+        // 先请求 Shizuku 提权（可选）：授权后结果可直写你指定目录；未授权也不影响，走 SAF 兜底
+        if (!ShizukuHelper.available()) {
+            ShizukuHelper.requestAuthorization(this)
+        }
         // 通知权限没授予时先请求，授完再启动服务（保证第一遍就弹通知）
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
