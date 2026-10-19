@@ -40,6 +40,8 @@ class TaskService : Service() {
     @Volatile var running: Boolean = false
     /** 前台服务是否成功 startForeground（诊断用）。 */
     @Volatile var fgOk: Boolean = false
+    /** 通知权限是否已授予（Android 13+）；未授予时不强行发通知，避免反复失败。 */
+    @Volatile var canNotify: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -57,24 +59,22 @@ class TaskService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 先同步 startForeground（占位），保证 5 秒窗口内完成，不会被系统当"后台启动"杀。
-        // 第一遍就要弹通知——若 3 参（带 FOREGROUND_SERVICE_TYPE）被 ROM 拒，立即回落 2 参版本，
-        // 不再静默吞掉（之前第一遍不弹通知就是这个 catch 吞了异常）。
+        // 先判断能否发通知（Android 13+ 需 POST_NOTIFICATIONS 已授予），避免第一遍未授权时反复失败
+        canNotify = hasNotificationPermission()
+        // 同步 startForeground（占位），5 秒窗口内完成；3 参（带 type）被 ROM 拒时回落 2 参
         try {
             startForeground(
                 NOT_ID,
-                buildNote("准备中…", ongoing = true),
+                buildNote(if (canNotify) "准备中…" else "任务已启动（通知权限未授予）", ongoing = true),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
             fgOk = true
         } catch (e: Exception) {
             try {
-                startForeground(NOT_ID, buildNote("准备中…", ongoing = true))
+                startForeground(NOT_ID, buildNote("任务已启动", ongoing = true))
                 fgOk = true
             } catch (_: Exception) {
-                // 彻底不行：任务仍跑（后台），但无保活
-                try { nm.notify(NOT_ID, buildNote("准备中…（无前台保护）", ongoing = false)) }
-                catch (_: Exception) { }
+                // 彻底不行：任务仍跑（后台），仅靠界面回显
             }
         }
         when (intent?.action) {
@@ -172,8 +172,10 @@ class TaskService : Service() {
                 if (res.unfilled > 0) append("，未替换 ").append(res.unfilled)
                 if (res.remainingMd5 > 0) append("，富余 md5 ").append(res.remainingMd5)
                 append("\n").append(outMsg)
-                append("\n诊断：前台服务=").append(if (fgOk) "已启用（可后台）" else "被ROM拒绝（仅应用内）")
-                append("，通知=").append(if (hasNotificationPermission()) "已授权" else "未授权")
+                append("\n诊断：前台服务=")
+                append(if (fgOk) "已启用（可后台）" else "被ROM拒绝（仅应用内）")
+                append("，通知权限=").append(if (canNotify) "已授权（已弹通知栏）" else "未授权（无通知栏）")
+                if (!canNotify) append(" → 请在系统设置里给本应用开通知权限，下次即可弹通知")
             }
         } catch (e: Exception) {
             novelResult = "替换出错：${e.message}"
@@ -410,7 +412,9 @@ class TaskService : Service() {
     }
 
     private fun updateNote(text: String, ongoing: Boolean = true) {
-        nm.notify(NOT_ID, buildNote(text, ongoing))
+        // 无通知权限时不反复 notify（会静默失败），避免浪费
+        if (!canNotify) return
+        try { nm.notify(NOT_ID, buildNote(text, ongoing)) } catch (_: Exception) { }
     }
 
     private fun buildNote(text: String, ongoing: Boolean): Notification {
