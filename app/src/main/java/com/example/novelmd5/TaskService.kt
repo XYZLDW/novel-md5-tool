@@ -38,6 +38,8 @@ class TaskService : Service() {
     @Volatile var renameResult: String? = null
     @Volatile var novelResult: String? = null
     @Volatile var running: Boolean = false
+    /** 前台服务是否成功 startForeground（诊断用）。 */
+    @Volatile var fgOk: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -63,6 +65,7 @@ class TaskService : Service() {
                 buildNote("准备中…", ongoing = true),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
+            fgOk = true
         } catch (e: Exception) {
             // 前台服务被 ROM 拒绝：仍尝试继续跑任务（普通后台），但不再保活。
             // 记到结果里让界面能看到。
@@ -157,7 +160,7 @@ class TaskService : Service() {
             val baseName = DocUtils.displayName(contentResolver, novel)
             val outName = baseName.removeSuffix(".txt") + "_filled.txt"
             val outBytes = res.text.encodeToByteArray()
-            val outMsg = writeOutput(outTree, outName, outBytes)
+            val outMsg = writeOutput(md5Tree, outTree, outName, outBytes)
 
             novelResult = buildString {
                 append("替换完成。img 总数 ").append(res.totalImgs)
@@ -165,6 +168,8 @@ class TaskService : Service() {
                 if (res.unfilled > 0) append("，未替换 ").append(res.unfilled)
                 if (res.remainingMd5 > 0) append("，富余 md5 ").append(res.remainingMd5)
                 append("\n").append(outMsg)
+                append("\n诊断：前台服务=").append(if (fgOk) "已启用（可后台）" else "被ROM拒绝（仅应用内）")
+                append("，通知=").append(if (hasNotificationPermission()) "已授权" else "未授权")
             }
         } catch (e: Exception) {
             novelResult = "替换出错：${e.message}"
@@ -177,51 +182,68 @@ class TaskService : Service() {
 
     /**
      * 输出落盘（不再依赖"全部文件访问"，那个权限在 iQOO 上不可靠）：
-     *  1) SAF 直写你选的目录（openOutputStream "wt"）—— 只要输出目录和你图片/小说
-     *     在同一个已授权的 tree（或它的子目录），iQOO 就放行（功能1 在同一 tree 改名成功已证明）
-     *  2) 写不了 → 落到公共 下载/（MediaStore，任何 ROM 都允许）
+     *  1) 首选【图片文件夹本身】（md5Tree）—— 它可写（功能1 在同一个 tree 里改名成功过），
+     *     结果 txt 直接落到你放图片的目录，最符合"落在我设定的地方"
+     *  2) 其次你选的"输出目录"（outTree）
+     *  3) 都写不了 → 公共 下载/（MediaStore，任何 ROM 都允许）
      */
-    private suspend fun writeOutput(outTree: Uri?, outName: String, bytes: ByteArray): String =
-        withContext(Dispatchers.IO) {
-            // 1) SAF 直写你选的目录
-            if (outTree != null) {
-                try {
-                    val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(outTree)
-                    val targetUri = android.provider.DocumentsContract.buildDocumentUri(
-                        outTree.authority, "$treeDocId/$outName"
-                    )
-                    val out = contentResolver.openOutputStream(targetUri, "wt")
-                    if (out != null) {
-                        out.use { it.write(bytes) }
-                        return@withContext "已写出到你选的目录：$outName"
-                    }
-                } catch (_: Exception) { /* 落到下载目录 */ }
-            }
-            // 2) 兜底：公共下载目录（API 29+ 走 MediaStore，旧版走 File）
-            try {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    val values = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, outName)
-                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
-                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download")
-                    }
-                    val newUri = contentResolver.insert(
-                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-                    ) ?: throw java.io.FileNotFoundException("MediaStore insert 返回 null")
-                    contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
-                        ?: throw java.io.FileNotFoundException("打不开 MediaStore 流")
-                    return@withContext "输出目录写不了，已改写到 下载/：$outName"
-                } else {
-                    val dl = android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_DOWNLOADS)
-                    if (!dl.exists()) dl.mkdirs()
-                    File(dl, outName).writeBytes(bytes)
-                    return@withContext "输出目录写不了，已改写到 下载/：$outName"
-                }
-            } catch (e: Exception) {
-                return@withContext "输出失败：${e.message}"
+    private suspend fun writeOutput(
+        md5Tree: Uri,
+        outTree: Uri?,
+        outName: String,
+        bytes: ByteArray
+    ): String = withContext(Dispatchers.IO) {
+        // 1) 首选图片文件夹（可写性最高）
+        val candidates = buildList {
+            add(md5Tree to "图片文件夹")
+            if (outTree != null && outTree.toString() != md5Tree.toString()) {
+                add(outTree to "你选的输出目录")
             }
         }
+        for ((tree, label) in candidates) {
+            try {
+                val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+                val targetUri = android.provider.DocumentsContract.buildDocumentUri(
+                    tree.authority, "$treeDocId/$outName"
+                )
+                val out = contentResolver.openOutputStream(targetUri, "wt")
+                if (out != null) {
+                    out.use { it.write(bytes) }
+                    return@withContext "已写出到 $label：$outName"
+                }
+            } catch (_: Exception) { /* 试下一个 */ }
+        }
+        // 3) 兜底：公共下载目录（API 29+ 走 MediaStore，旧版走 File）
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, outName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download")
+                }
+                val newUri = contentResolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+                ) ?: throw java.io.FileNotFoundException("MediaStore insert 返回 null")
+                contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("打不开 MediaStore 流")
+                return@withContext "都写不了，已改写到 下载/：$outName"
+            } else {
+                val dl = android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS)
+                if (!dl.exists()) dl.mkdirs()
+                File(dl, outName).writeBytes(bytes)
+                return@withContext "都写不了，已改写到 下载/：$outName"
+            }
+        } catch (e: Exception) {
+            return@withContext "输出失败：${e.message}"
+        }
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return true
+        return checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
 
     private fun sortComparator(idx: Int): Comparator<RenameTask.ImgDoc> = when (idx) {
         0 -> compareBy<RenameTask.ImgDoc> { it.name.lowercase() }
