@@ -181,10 +181,9 @@ class TaskService : Service() {
     }
 
     /**
-     * 输出落盘（不再依赖"全部文件访问"，那个权限在 iQOO 上不可靠）：
-     *  1) 首选【图片文件夹本身】（md5Tree）—— 它可写（功能1 在同一个 tree 里改名成功过），
-     *     结果 txt 直接落到你放图片的目录，最符合"落在我设定的地方"
-     *  2) 其次你选的"输出目录"（outTree）
+     * 输出落盘：
+     *  1) 授权「全部文件访问」时，按你选的【输出目录】真实路径直接写（不受 DocumentsProvider 限制）
+     *  2) 没授权或输出目录没选 → 首选【图片文件夹本身】（SAF 可写）
      *  3) 都写不了 → 公共 下载/（MediaStore，任何 ROM 都允许）
      */
     private suspend fun writeOutput(
@@ -193,7 +192,19 @@ class TaskService : Service() {
         outName: String,
         bytes: ByteArray
     ): String = withContext(Dispatchers.IO) {
-        // 1) 首选图片文件夹（可写性最高）
+        // 1) 授权了「全部文件访问」且选了输出目录 → 按真实路径写（最贴合"落在我设定的地方"）
+        if (DocUtils.isExternalStorageManager() && outTree != null) {
+            try {
+                val realDir = DocUtils.treeToRealPath(outTree)
+                if (realDir != null) {
+                    val f = File(realDir, outName)
+                    if (!f.parentFile!!.exists()) f.parentFile.mkdirs()
+                    f.writeBytes(bytes)
+                    return@withContext "已按「全部文件访问」写出到真实路径：${f.absolutePath}"
+                }
+            } catch (_: Exception) { /* 落到 SAF 兜底 */ }
+        }
+        // 2) SAF：首选图片文件夹（可写性最高），其次你选的输出目录
         val candidates = buildList {
             add(md5Tree to "图片文件夹")
             if (outTree != null && outTree.toString() != md5Tree.toString()) {
