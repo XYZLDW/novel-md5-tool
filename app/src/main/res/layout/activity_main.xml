@@ -177,7 +177,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="输出优先写你选的目录；写不了自动落到 下载/ 目录"
+                android:text="结果 txt 优先写进「图片文件夹」本身；写不了落 下载/"
                 android:textSize="12sp" />
 
         </LinearLayout>
