@@ -67,19 +67,29 @@ class MainActivity : AppCompatActivity() {
     private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pollRunnable = object : Runnable {
         override fun run() {
+            // 优先读前台服务结果（切后台仍有效）
             val svc = TaskService.instance()
+            var shown = false
             if (svc != null) {
                 svc.renameResult?.let {
-                    findViewById<TextView>(R.id.tvRenameResult).text = it
+                    findViewById<TextView>(R.id.tvRenameResult).text = it; shown = true
                 }
                 svc.novelResult?.let {
-                    findViewById<TextView>(R.id.tvNovelResult).text = it
+                    findViewById<TextView>(R.id.tvNovelResult).text = it; shown = true
                 }
                 if (svc.running) {
                     pollHandler.postDelayed(this, 400)
                     return
                 }
             }
+            // 降级：应用内 TaskRunner 结果
+            TaskRunner.renameResult?.let {
+                findViewById<TextView>(R.id.tvRenameResult).text = it
+            }
+            TaskRunner.novelResult?.let {
+                findViewById<TextView>(R.id.tvNovelResult).text = it
+            }
+            if (TaskRunner.running) pollHandler.postDelayed(this, 400)
         }
     }
 
@@ -135,12 +145,21 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.tvRenameResult).text = "已提交，看通知栏进度…"
         ensurePostNotifications()
-        val i = Intent(this, TaskService::class.java)
-            .setAction(TaskService.ACTION_RENAME)
-            .putExtra(TaskService.EXTRA_TREE, tree)
-        if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
-        pollHandler.post(pollRunnable)
-        Toast.makeText(this, "重命名已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
+        try {
+            val i = Intent(this, TaskService::class.java)
+                .setAction(TaskService.ACTION_RENAME)
+                .putExtra(TaskService.EXTRA_TREE, tree)
+            if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
+            pollHandler.post(pollRunnable)
+            Toast.makeText(this, "重命名已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            // iQOO 等 ROM 可能拒绝 sideload 应用的前台服务 → 降级为应用内执行，任务不丢
+            findViewById<TextView>(R.id.tvRenameResult).text =
+                "前台服务启动失败（${e.message}），已改为应用内执行"
+            TaskRunner.startRename(contentResolver, tree)
+            pollHandler.post(pollRunnable)
+            Toast.makeText(this, "已在应用内开始（不能切走）", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---------- 功能2（前台服务） ----------
@@ -154,15 +173,24 @@ class MainActivity : AppCompatActivity() {
         val sortIdx = findViewById<android.widget.Spinner>(R.id.spinnerMd5Order).selectedItemPosition
         findViewById<TextView>(R.id.tvNovelResult).text = "已提交，看通知栏进度…"
         ensurePostNotifications()
-        val i = Intent(this, TaskService::class.java)
-            .setAction(TaskService.ACTION_NOVEL)
-            .putExtra(TaskService.EXTRA_NOVEL, novel)
-            .putExtra(TaskService.EXTRA_MD5TREE, tree)
-            .putExtra(TaskService.EXTRA_OUTTREE, outTree)
-            .putExtra(TaskService.EXTRA_SORT, sortIdx)
-        if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
-        pollHandler.post(pollRunnable)
-        Toast.makeText(this, "替换已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
+        try {
+            val i = Intent(this, TaskService::class.java)
+                .setAction(TaskService.ACTION_NOVEL)
+                .putExtra(TaskService.EXTRA_NOVEL, novel)
+                .putExtra(TaskService.EXTRA_MD5TREE, tree)
+                .putExtra(TaskService.EXTRA_OUTTREE, outTree)
+                .putExtra(TaskService.EXTRA_SORT, sortIdx)
+            if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
+            pollHandler.post(pollRunnable)
+            Toast.makeText(this, "替换已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            // iQOO 等 ROM 可能拒绝前台服务 → 降级为应用内 TaskRunner 执行，任务不丢
+            findViewById<TextView>(R.id.tvNovelResult).text =
+                "前台服务启动失败（${e.message}），已改为应用内执行"
+            TaskRunner.startNovel(contentResolver, novel, tree, outTree, sortIdx)
+            pollHandler.post(pollRunnable)
+            Toast.makeText(this, "已在应用内开始（不能切走）", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** Android 13+ 需要通知权限，否则前台服务通知不显示（但服务仍会保活进程）。 */
