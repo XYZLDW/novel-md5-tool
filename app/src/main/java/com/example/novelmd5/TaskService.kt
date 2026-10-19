@@ -188,6 +188,7 @@ class TaskService : Service() {
 
     /**
      * 输出落盘（按"最贴合用户指定目录"优先）：
+     *  0) Shizuku 提权可用 + 选了输出目录 → 直写真实路径（彻底突破 iQOO provider 限制）
      *  1) 授权「全部文件访问」且选了输出目录 → 按真实路径直写
      *  2) 在【你选的输出目录】里用 DocumentsContract API 落文件（功能1改名已证明该通道可用）
      *  3) 在【图片文件夹】里同样方式落文件
@@ -199,6 +200,14 @@ class TaskService : Service() {
         outName: String,
         bytes: ByteArray
     ): String = withContext(Dispatchers.IO) {
+        // 0) Shizuku 提权（可选）：授权后直写你选的输出目录真实路径
+        if (outTree != null && ShizukuHelper.available()) {
+            val written = ShizukuHelper.writeToRealPath(outTree, outName, bytes)
+            if (written != null) {
+                return@withContext "已用 Shizuku 提权写出到你选的输出目录：$written"
+            }
+            // Shizuku 写了但失败 → 继续下面的兜底
+        }
         // 1) 全部文件访问 + 真实路径（仅部分 ROM 可授予）
         if (DocUtils.isExternalStorageManager() && outTree != null) {
             try {
