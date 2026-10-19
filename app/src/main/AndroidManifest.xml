@@ -32,13 +32,13 @@
             android:foregroundServiceType="dataSync" />
 
         <!-- Shizuku：可选提权，授权后功能2 结果可直写任意目录 -->
-        <service
-            android:name="moe.shizuku.server.ShizukuService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="moe.shizuku.IPersistedService" />
-            </intent-filter>
-        </service>
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     </application>
 
