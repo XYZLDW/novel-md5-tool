@@ -50,12 +50,23 @@ class TaskService : Service() {
         nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel()
         TaskServiceHolder.set(this)
+        // 把服务上的结果同步进静态 holder（进程级，服务销毁后仍保留）
+        syncStaticResults()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        // 保留静态 holder 里的结果（供 Activity 轮询读），只清单例引用
+        syncStaticResults()
         TaskServiceHolder.set(null)
         scope.cancel()
+    }
+
+    /** 把服务实例上的结果字段同步到进程级静态 holder。 */
+    private fun syncStaticResults() {
+        TaskServiceHolder.staticRenameResult = renameResult
+        TaskServiceHolder.staticNovelResult = novelResult
+        TaskServiceHolder.staticRunning = running
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -122,6 +133,9 @@ class TaskService : Service() {
         } finally {
             running = false
             updateNote(renameResult ?: "完成", ongoing = false)
+            // 结果先落静态 holder（服务销毁后仍可被界面读到）
+            TaskServiceHolder.staticRenameResult = renameResult
+            TaskServiceHolder.staticRunning = false
             stopSelf()
         }
     }
@@ -182,6 +196,9 @@ class TaskService : Service() {
         } finally {
             running = false
             updateNote(novelResult?.lines()?.firstOrNull() ?: "完成", ongoing = false)
+            // 结果先落静态 holder（服务销毁后仍可被界面读到）
+            TaskServiceHolder.staticNovelResult = novelResult
+            TaskServiceHolder.staticRunning = false
             stopSelf()
         }
     }
@@ -451,13 +468,21 @@ class TaskService : Service() {
         private const val NOT_ID = 7
 
         /** Activity 用来读服务的结果（进程内单例）。 */
-        fun instance(): TaskService? = (TaskServiceHolder.get())
+        fun instance(): TaskService? = TaskServiceHolder.get()
+
+        /** 读进程级静态结果（服务已 stopSelf 后仍可拿到）。 */
+        fun staticRenameResult(): String? = TaskServiceHolder.staticRenameResult
+        fun staticNovelResult(): String? = TaskServiceHolder.staticNovelResult
+        fun staticRunning(): Boolean = TaskServiceHolder.staticRunning
     }
 }
 
-/** 进程内持有当前 TaskService 实例（供 Activity 读结果）。 */
+/** 进程内持有当前 TaskService 实例（供 Activity 读结果）；结果字段为进程级静态，服务销毁后仍保留。 */
 internal object TaskServiceHolder {
     @Volatile private var ref: TaskService? = null
+    @Volatile var staticRenameResult: String? = null
+    @Volatile var staticNovelResult: String? = null
+    @Volatile var staticRunning: Boolean = false
     fun get(): TaskService? = ref
     fun set(s: TaskService?) { ref = s }
 }
