@@ -221,20 +221,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 通知权限申请回来后：自动接着启动服务（用户已授权 → 第一遍就有通知栏）。 */
+    /** 通知权限申请回来后自动接着启动服务。 */
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
-        grantResults: Array<Int>
+        grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100 &&
             grantResults.isNotEmpty() &&
             grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            // 权限刚批下来，自动触发"待启动"的任务
-            val svc = TaskService.instance()
-            // 若服务已在跑（降级路径），无需重启；这里主要服务于"先授权再重按"的场景
             Toast.makeText(
                 this, "通知权限已允许，重按一次「开始」即可看到通知栏",
                 Toast.LENGTH_LONG
