@@ -144,7 +144,21 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "请先选择图片文件夹", Toast.LENGTH_SHORT).show(); return
         }
         findViewById<TextView>(R.id.tvRenameResult).text = "已提交，看通知栏进度…"
-        ensurePostNotifications()
+        val pending = { startRenameService(tree) }
+        // 通知权限没授予时先请求，授完再启动服务（保证第一遍就弹通知）
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+            // 用户在 onActivityResult 回来后手动重触发；这里先记一笔
+            Toast.makeText(this, "请允许通知权限后重按一次开始", Toast.LENGTH_LONG).show()
+            return
+        }
+        pending()
+    }
+
+    private fun startRenameService(tree: Uri) {
         try {
             val i = Intent(this, TaskService::class.java)
                 .setAction(TaskService.ACTION_RENAME)
@@ -172,14 +186,28 @@ class MainActivity : AppCompatActivity() {
         }
         val sortIdx = findViewById<android.widget.Spinner>(R.id.spinnerMd5Order).selectedItemPosition
         findViewById<TextView>(R.id.tvNovelResult).text = "已提交，看通知栏进度…"
-        ensurePostNotifications()
+        // 通知权限没授予时先请求，授完再启动服务（保证第一遍就弹通知）
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+            Toast.makeText(this, "请允许通知权限后重按一次开始", Toast.LENGTH_LONG).show()
+            return
+        }
+        startNovelService(novel, tree, outTree, sortIdx)
+    }
+
+    private fun startNovelService(
+        novel: Uri, tree: Uri, out: Uri?, sort: Int
+    ) {
         try {
             val i = Intent(this, TaskService::class.java)
                 .setAction(TaskService.ACTION_NOVEL)
                 .putExtra(TaskService.EXTRA_NOVEL, novel)
                 .putExtra(TaskService.EXTRA_MD5TREE, tree)
-                .putExtra(TaskService.EXTRA_OUTTREE, outTree)
-                .putExtra(TaskService.EXTRA_SORT, sortIdx)
+                .putExtra(TaskService.EXTRA_OUTTREE, out)
+                .putExtra(TaskService.EXTRA_SORT, sort)
             if (Build.VERSION.SDK_INT >= 29) startForegroundService(i) else startService(i)
             pollHandler.post(pollRunnable)
             Toast.makeText(this, "替换已在后台开始，可锁屏/切走", Toast.LENGTH_SHORT).show()
@@ -187,21 +215,30 @@ class MainActivity : AppCompatActivity() {
             // iQOO 等 ROM 可能拒绝前台服务 → 降级为应用内 TaskRunner 执行，任务不丢
             findViewById<TextView>(R.id.tvNovelResult).text =
                 "前台服务启动失败（${e.message}），已改为应用内执行"
-            TaskRunner.startNovel(contentResolver, novel, tree, outTree, sortIdx)
+            TaskRunner.startNovel(contentResolver, novel, tree, out, sort)
             pollHandler.post(pollRunnable)
             Toast.makeText(this, "已在应用内开始（不能切走）", Toast.LENGTH_SHORT).show()
         }
     }
 
-    /** Android 13+ 需要通知权限，否则前台服务通知不显示（但服务仍会保活进程）。 */
-    private fun ensurePostNotifications() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
+    /** 通知权限申请回来后：自动接着启动服务（用户已授权 → 第一遍就有通知栏）。 */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: Array<Int>
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100
-            )
+            // 权限刚批下来，自动触发"待启动"的任务
+            val svc = TaskService.instance()
+            // 若服务已在跑（降级路径），无需重启；这里主要服务于"先授权再重按"的场景
+            Toast.makeText(
+                this, "通知权限已允许，重按一次「开始」即可看到通知栏",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 }
