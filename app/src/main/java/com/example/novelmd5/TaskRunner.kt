@@ -97,7 +97,7 @@ object TaskRunner {
                 val baseName = DocUtils.displayName(resolver, novel)
                 val outName = baseName.removeSuffix(".txt") + "_filled.txt"
                 val outBytes = res.text.encodeToByteArray()
-                val outMsg = writeOutput(resolver, outTree, outName, outBytes)
+                val outMsg = writeOutput(resolver, md5Tree, outTree, outName, outBytes)
 
                 novelResult = buildString {
                     append("替换完成。img 总数 ").append(res.totalImgs)
@@ -122,6 +122,7 @@ object TaskRunner {
      */
     private suspend fun writeOutput(
         resolver: ContentResolver,
+        md5Tree: android.net.Uri,
         outTree: android.net.Uri?,
         outName: String,
         bytes: ByteArray
@@ -129,26 +130,34 @@ object TaskRunner {
         // 1) 全部文件访问 + 能映射真实路径 → 直接写你选的目录
         if (outTree != null && DocUtils.isExternalStorageManager()) {
             val dir = DocUtils.treeToRealPath(outTree)
-            if (dir != null && dir.isDirectory) {
+            if (dir != null) {
                 try {
-                    File(dir, outName).writeBytes(bytes)
-                    return@withContext "已写出到你选的目录：$outName"
+                    val f = File(dir, outName)
+                    if (!f.parentFile!!.exists()) f.parentFile.mkdirs()
+                    f.writeBytes(bytes)
+                    return@withContext "已按「全部文件访问」写出到真实路径：${f.absolutePath}"
                 } catch (_: Exception) { /* 落到下面 */ }
             }
         }
-        // 2) SAF 直写（部分 ROM 可用）
-        if (outTree != null) {
+        // 2) SAF：首选图片文件夹（可写性最高），其次你选的输出目录
+        val candidates = buildList {
+            add(md5Tree to "图片文件夹")
+            if (outTree != null && outTree.toString() != md5Tree.toString()) {
+                add(outTree to "你选的输出目录")
+            }
+        }
+        for ((tree, label) in candidates) {
             try {
-                val treeDocId = DocumentsContract.getTreeDocumentId(outTree)
+                val treeDocId = DocumentsContract.getTreeDocumentId(tree)
                 val targetUri = DocumentsContract.buildDocumentUri(
-                    outTree.authority, "$treeDocId/$outName"
+                    tree.authority, "$treeDocId/$outName"
                 )
                 val out = resolver.openOutputStream(targetUri, "wt")
                 if (out != null) {
                     out.use { it.write(bytes) }
-                    return@withContext "已写出到你选的目录：$outName"
+                    return@withContext "已写出到 $label：$outName"
                 }
-            } catch (_: Exception) { /* 落到下载目录 */ }
+            } catch (_: Exception) { /* 试下一个 */ }
         }
         // 3) 兜底：公共下载目录
         try {
