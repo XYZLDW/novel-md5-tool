@@ -55,12 +55,21 @@ class TaskService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 先同步 startForeground（占位），保证 5 秒窗口内完成，不会被系统当"后台启动"杀
-        startForeground(
-            NOT_ID,
-            buildNote("准备中…", ongoing = true),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        )
+        // 先同步 startForeground（占位），保证 5 秒窗口内完成，不会被系统当"后台启动"杀。
+        // iQOO 等 ROM 可能拒绝 sideload 应用的前台服务 → 包 try/catch，失败就降级为普通 startService 行为。
+        try {
+            startForeground(
+                NOT_ID,
+                buildNote("准备中…", ongoing = true),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } catch (e: Exception) {
+            // 前台服务被 ROM 拒绝：仍尝试继续跑任务（普通后台），但不再保活。
+            // 记到结果里让界面能看到。
+            try {
+                startForeground(NOT_ID, buildNote("前台被拒，后台执行中…", ongoing = true))
+            } catch (_: Exception) { /* 彻底不行就算了，任务继续跑 */ }
+        }
         when (intent?.action) {
             ACTION_RENAME -> {
                 val tree = intent.getParcelableExtra<Uri>(EXTRA_TREE)
