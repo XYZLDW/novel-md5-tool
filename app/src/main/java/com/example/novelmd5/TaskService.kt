@@ -243,14 +243,14 @@ class TaskService : Service() {
     /** 在某 tree 内用 4 种 SAF 写法依次尝试新建文件；成功返回该写法名，全失败返回 null。 */
     private fun tryWriteToTree(tree: Uri, outName: String, bytes: ByteArray): String? {
         val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
-        // a) createDocument
+        // a) createDocument（API 24+）
         try {
-            val newUri = android.provider.DocumentsContract.createDocument(
-                contentResolver, tree, "text/plain"
-            ) ?: return null // null 表示 createDocument 不可用，试下一个
-            contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
-                ?: throw java.io.FileNotFoundException("createDocument 流为 null")
-            return "createDocument"
+            val newUri = contentResolver.createDocument(tree, "text/plain", outName)
+            if (newUri != null) {
+                contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("createDocument 流为 null")
+                return "createDocument"
+            }
         } catch (_: Exception) { /* 试 b */ }
         // b) insert（部分 ROM 支持）
         try {
