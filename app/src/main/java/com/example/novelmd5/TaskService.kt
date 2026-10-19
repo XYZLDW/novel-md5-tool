@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -58,11 +57,9 @@ class TaskService : Service() {
         // 先同步 startForeground（占位），保证 5 秒窗口内完成，不会被系统当"后台启动"杀
         startForeground(
             NOT_ID,
-            buildNote("准备中…", ongoing = true)
+            buildNote("准备中…", ongoing = true),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
-        if (Build.VERSION.SDK_INT >= 29) {
-            // 重新声明类型（部分 ROM 需要）
-        }
         when (intent?.action) {
             ACTION_RENAME -> {
                 val tree = intent.getParcelableExtra<Uri>(EXTRA_TREE)
@@ -174,7 +171,7 @@ class TaskService : Service() {
      *     在同一个已授权的 tree（或它的子目录），iQOO 就放行（功能1 在同一 tree 改名成功已证明）
      *  2) 写不了 → 落到公共 下载/（MediaStore，任何 ROM 都允许）
      */
-    private fun writeOutput(outTree: Uri?, outName: String, bytes: ByteArray): String =
+    private suspend fun writeOutput(outTree: Uri?, outName: String, bytes: ByteArray): String =
         withContext(Dispatchers.IO) {
             // 1) SAF 直写你选的目录
             if (outTree != null) {
@@ -235,7 +232,7 @@ class TaskService : Service() {
         }
     }
 
-    private fun updateNote(text: String, ongoing: Boolean) {
+    private fun updateNote(text: String, ongoing: Boolean = true) {
         nm.notify(NOT_ID, buildNote(text, ongoing))
     }
 
@@ -278,6 +275,6 @@ class TaskService : Service() {
 /** 进程内持有当前 TaskService 实例（供 Activity 读结果）。 */
 internal object TaskServiceHolder {
     @Volatile private var ref: TaskService? = null
-    fun get() = ref
-    fun set(s: TaskService) { ref = s }
+    fun get(): TaskService? = ref
+    fun set(s: TaskService?) { ref = s }
 }
