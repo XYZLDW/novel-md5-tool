@@ -182,10 +182,9 @@ class TaskService : Service() {
 
     /**
      * 输出落盘（按"最贴合用户指定目录"优先）：
-     *  1) 授权「全部文件访问」且选了输出目录 → 按真实路径直写（不受 provider 限制）
-     *  2) 在【你选的输出目录 tree】内新建文件，依次试 4 种 SAF 写法
-     *     （iQOO 对"用户自己选过的目录内新建"有时放行，比"全部文件访问"稳定）
-     *  3) 在【图片文件夹 tree】内新建文件（同 4 种写法，可写性已验证）
+     *  1) 授权「全部文件访问」且选了输出目录 → 按真实路径直写
+     *  2) 在【你选的输出目录】里用 DocumentsContract API 落文件（功能1改名已证明该通道可用）
+     *  3) 在【图片文件夹】里同样方式落文件
      *  4) 兜底：公共 下载/（MediaStore，任何 ROM 都允许）
      */
     private suspend fun writeOutput(
@@ -194,7 +193,7 @@ class TaskService : Service() {
         outName: String,
         bytes: ByteArray
     ): String = withContext(Dispatchers.IO) {
-        // 1) 全部文件访问 + 真实路径
+        // 1) 全部文件访问 + 真实路径（仅部分 ROM 可授予）
         if (DocUtils.isExternalStorageManager() && outTree != null) {
             try {
                 val realDir = DocUtils.treeToRealPath(outTree)
@@ -206,13 +205,13 @@ class TaskService : Service() {
                 }
             } catch (_: Exception) { /* 落到 SAF 多写法 */ }
         }
-        // 2) 你选的输出目录（4 种写法依次试）
+        // 2) 你选的输出目录（SAF 通道，功能1改名证明可用）
         if (outTree != null && outTree.toString() != md5Tree.toString()) {
-            val r = tryWriteToTree(outTree, outName, bytes)
+            val r = writeIntoTree(outTree, outName, bytes)
             if (r != null) return@withContext "已写出到你选的输出目录：$outName（$r）"
         }
-        // 3) 图片文件夹（4 种写法依次试）
-        val r3 = tryWriteToTree(md5Tree, outName, bytes)
+        // 3) 图片文件夹
+        val r3 = writeIntoTree(md5Tree, outName, bytes)
         if (r3 != null) return@withContext "输出目录写不了，已改写到 图片文件夹：$outName（$r3）"
         // 4) 兜底：公共下载目录
         try {
@@ -240,43 +239,62 @@ class TaskService : Service() {
         }
     }
 
-    /** 在某 tree 内用 3 种 SAF 写法依次尝试新建文件；成功返回该写法名，全失败返回 null。 */
-    private fun tryWriteToTree(tree: Uri, outName: String, bytes: ByteArray): String? {
-        val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
-        // a) insert（部分 ROM 支持，往 child documents URI 插入新文档）
+    /**
+     * 在某 tree 内把结果 txt 写进去，依次试 4 种 DocumentsContract API：
+     *  a) createDocument 建空文档再写内容
+     *  b) openOutputStream(newDocUri,"wt") 直接新建
+     *  c) createDocument 临时名 → renameDocument 成目标名 → 写内容
+     *  d) createDocument 临时名 → 写内容 → renameDocument 成目标名
+     *  成功返回该方式名；全失败返回 null（由调用方继续兜底）。
+     */
+    private fun writeIntoTree(tree: Uri, outName: String, bytes: ByteArray): String? {
+        // a) 最直接的：createDocument + 写流
         try {
-            val values = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, outName)
-            }
-            val treeChildren = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
-                tree, treeDocId)
-            val newUri = contentResolver.insert(treeChildren, values)
+            val newUri = android.provider.DocumentsContract.createDocument(
+                contentResolver, tree, "text/plain", outName)
             if (newUri != null) {
                 contentResolver.openOutputStream(newUri)?.use { it.write(bytes) }
-                    ?: throw java.io.FileNotFoundException("insert 流为 null")
-                return "insert"
+                    ?: throw java.io.FileNotFoundException("createDocument 流为 null")
+                return "createDocument"
             }
         } catch (_: Exception) { /* 试 b */ }
-        // b) openOutputStream 新 doc URI "wt"（最常用）
+        // b) 新 doc URI + "wt"
         try {
+            val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
             val targetUri = android.provider.DocumentsContract.buildDocumentUri(
                 tree.authority, "$treeDocId/$outName"
             )
             val out = contentResolver.openOutputStream(targetUri, "wt")
             if (out != null) {
                 out.use { it.write(bytes) }
-                return "openOutputStream"
+                return "openOutputStream-wt"
             }
         } catch (_: Exception) { /* 试 c */ }
-        // c) 若目标文件已存在，用默认模式覆盖
+        // c) 先建临时文档改名（利用 renameDocument 已验证可用）
         try {
-            val targetUri = android.provider.DocumentsContract.buildDocumentUri(
-                tree.authority, "$treeDocId/$outName"
-            )
-            val out = contentResolver.openOutputStream(targetUri)
-            if (out != null) {
-                out.use { it.write(bytes) }
-                return "overwrite"
+            val tmpName = "_dsh_tmp_${System.currentTimeMillis()}.tmp"
+            val tmpUri = android.provider.DocumentsContract.createDocument(
+                contentResolver, tree, "application/octet-stream", tmpName)
+            if (tmpUri != null) {
+                val finalUri = android.provider.DocumentsContract.renameDocument(
+                    contentResolver, tmpUri, outName
+                ) ?: throw java.io.FileNotFoundException("renameDocument 返回 null")
+                contentResolver.openOutputStream(finalUri)?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("改名后流为 null")
+                return "create+rename"
+            }
+        } catch (_: Exception) { /* 试 d */ }
+        // d) 建临时→写内容→改名
+        try {
+            val tmpName = "_dsh_tmp_${System.currentTimeMillis()}.tmp"
+            val tmpUri = android.provider.DocumentsContract.createDocument(
+                contentResolver, tree, "application/octet-stream", tmpName)
+            if (tmpUri != null) {
+                contentResolver.openOutputStream(tmpUri)?.use { it.write(bytes) }
+                    ?: throw java.io.FileNotFoundException("写临时文件失败")
+                android.provider.DocumentsContract.renameDocument(contentResolver, tmpUri, outName)
+                    ?: throw java.io.FileNotFoundException("renameDocument 返回 null")
+                return "write+rename"
             }
         } catch (_: Exception) { /* 全失败 */ }
         return null
