@@ -67,22 +67,23 @@ class MainActivity : AppCompatActivity() {
     private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val pollRunnable = object : Runnable {
         override fun run() {
-            // 优先读前台服务结果（切后台仍有效）
-            val svc = TaskService.instance()
+            // 优先读进程级静态结果（服务 stopSelf 销毁后仍保留）
+            val rRes = TaskService.staticRenameResult()
+            val nRes = TaskService.staticNovelResult()
             var shown = false
-            if (svc != null) {
-                svc.renameResult?.let {
-                    findViewById<TextView>(R.id.tvRenameResult).text = it; shown = true
-                }
-                svc.novelResult?.let {
-                    findViewById<TextView>(R.id.tvNovelResult).text = it; shown = true
-                }
-                if (svc.running) {
-                    pollHandler.postDelayed(this, 400)
-                    return
-                }
+            rRes?.let {
+                findViewById<TextView>(R.id.tvRenameResult).text = it; shown = true
             }
-            // 降级：应用内 TaskRunner 结果
+            nRes?.let {
+                findViewById<TextView>(R.id.tvNovelResult).text = it; shown = true
+            }
+            // 服务还在跑或静态标记未结束 → 继续轮询
+            val svc = TaskService.instance()
+            if (svc?.running == true || TaskService.staticRunning()) {
+                pollHandler.postDelayed(this, 400)
+                return
+            }
+            // 降级：应用内 TaskRunner 结果（前台服务被 ROM 拒时的兜底路径）
             TaskRunner.renameResult?.let {
                 findViewById<TextView>(R.id.tvRenameResult).text = it
             }
