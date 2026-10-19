@@ -111,15 +111,12 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnDoRename).setOnClickListener { startRename() }
         findViewById<Button>(R.id.btnDoNovel).setOnClickListener { startNovel() }
-        findViewById<Button>(R.id.btnGrantAllFiles).setOnClickListener { grantAllFiles() }
 
         checkNovelReady()
-        refreshAllFilesStatus()
     }
 
     override fun onResume() {
         super.onResume()
-        refreshAllFilesStatus()
         TaskService.instance()?.let { svc ->
             svc.renameResult?.let {
                 findViewById<TextView>(R.id.tvRenameResult).text = it
@@ -129,48 +126,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (TaskService.instance()?.running == true) pollHandler.post(pollRunnable)
-    }
-
-    /** 「全部文件访问」授权状态：授权后按钮变绿不再跳页，避免来回抖动。 */
-    private fun refreshAllFilesStatus() {
-        val tv = findViewById<TextView>(R.id.tvAllFilesStatus)
-        val btn = findViewById<Button>(R.id.btnGrantAllFiles)
-        if (DocUtils.isExternalStorageManager()) {
-            tv.text = "已授权「全部文件访问」：功能2 结果直接写你选的输出目录"
-            btn.text = "已授权"
-            btn.isEnabled = false
-        } else {
-            tv.text = "未授权「全部文件访问」：功能2 结果只能写 下载/（点此授权）"
-            btn.text = "去授权"
-            btn.isEnabled = true
-        }
-    }
-
-    /** 跳本应用详情页（iQOO 总列表页不显示 sideload 应用）。授权后回 onResume 会自动变绿。 */
-    private fun grantAllFiles() {
-        if (Build.VERSION.SDK_INT < 30) {
-            Toast.makeText(this, "Android 11 以下无需此授权", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (DocUtils.isExternalStorageManager()) {
-            refreshAllFilesStatus()
-            return
-        }
-        try {
-            val appUri = Uri.parse("package:$packageName")
-            val appIntent = Intent(
-                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, appUri
-            )
-            if (appIntent.resolveActivity(packageManager) != null) {
-                startActivity(appIntent)
-            } else {
-                startActivity(
-                    Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                )
-            }
-        } catch (e: Exception) {
-            Toast.makeText(this, "无法打开授权页：${e.message}", Toast.LENGTH_LONG).show()
-        }
     }
 
     override fun onDestroy() {
