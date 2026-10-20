@@ -44,4 +44,5 @@ dependencies {
     implementation 'androidx.activity:activity-ktx:1.9.0'
     // Shizuku 提权（可选：授权后功能2 结果可直写你指定的任意目录）
     implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 }
