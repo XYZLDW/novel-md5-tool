@@ -133,10 +133,9 @@ class TaskService : Service() {
         } finally {
             running = false
             updateNote(renameResult ?: "完成", ongoing = false)
-            // 结果先落静态 holder（服务销毁后仍可被界面读到）
+            // 结果先落静态 holder；不 stopSelf，服务保留为结果载体
             TaskServiceHolder.staticRenameResult = renameResult
             TaskServiceHolder.staticRunning = false
-            stopSelf()
         }
     }
 
@@ -199,7 +198,6 @@ class TaskService : Service() {
             // 结果先落静态 holder（服务销毁后仍可被界面读到）
             TaskServiceHolder.staticNovelResult = novelResult
             TaskServiceHolder.staticRunning = false
-            stopSelf()
         }
     }
 
