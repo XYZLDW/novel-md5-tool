@@ -215,7 +215,14 @@ class TaskService : Service() {
         outName: String,
         bytes: ByteArray
     ): String = withContext(Dispatchers.IO) {
-        // 0) （v19 起 Shizuku 路径移除；如日后需要可在此插入 Shizuku 提权直写真实路径）
+        // 0) Shizuku 提权可用 + 选了输出目录 → 用 shell 身份直写真实路径（突破 iQOO 限制）
+        if (outTree != null && ShizukuHelper.available()) {
+            val written = ShizukuHelper.writeToRealPath(outTree, outName, bytes)
+            if (written != null) {
+                return@withContext "已用 Shizuku 提权写出到你选的输出目录：$written"
+            }
+            // Shizuku 写失败 → 继续下面兜底
+        }
         // 1) 全部文件访问 + 真实路径（仅部分 ROM 可授予）
         if (DocUtils.isExternalStorageManager() && outTree != null) {
             try {
