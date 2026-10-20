@@ -169,6 +169,17 @@ class MainActivity : AppCompatActivity() {
                     ).show()
                 }
             }
+            // Shizuku 授权结果
+            1001 -> {
+                if (grantResults.isNotEmpty() &&
+                    grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    Toast.makeText(
+                        this, "Shizuku 提权已允许：功能2 结果可直接写你指定的目录",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
     }
 
@@ -238,6 +249,11 @@ class MainActivity : AppCompatActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
             Toast.makeText(this, "请允许通知权限后重按一次开始", Toast.LENGTH_LONG).show()
             return
+        }
+        // 若 Shizuku 可用则结果可直写你选的输出目录；不可用则自动回落兜底路径（不影响启动）
+        if (outTree != null && !ShizukuHelper.available()) {
+            // 静默尝试请求 Shizuku 授权（失败也无妨，任务照跑）
+            try { ShizukuHelper.requestAuthorization(this) } catch (_: Exception) { }
         }
         startNovelService(novel, tree, outTree, sortIdx)
     }
