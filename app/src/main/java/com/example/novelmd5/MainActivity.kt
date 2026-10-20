@@ -65,21 +65,22 @@ class MainActivity : AppCompatActivity() {
 
     // 轮询前台服务结果回显到界面
     private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pollCount = 0
     private val pollRunnable = object : Runnable {
         override fun run() {
-            // 优先读进程级静态结果（服务 stopSelf 销毁后仍保留）
+            // 进程级静态结果是主源（服务完成/销毁后仍可读到）
             val rRes = TaskService.staticRenameResult()
             val nRes = TaskService.staticNovelResult()
-            var shown = false
             rRes?.let {
-                findViewById<TextView>(R.id.tvRenameResult).text = it; shown = true
+                findViewById<TextView>(R.id.tvRenameResult).text = it
             }
             nRes?.let {
-                findViewById<TextView>(R.id.tvNovelResult).text = it; shown = true
+                findViewById<TextView>(R.id.tvNovelResult).text = it
             }
-            // 服务还在跑或静态标记未结束 → 继续轮询
+            // 活服务实例（进行中进度）
             val svc = TaskService.instance()
             if (svc?.running == true || TaskService.staticRunning()) {
+                pollCount = 0
                 pollHandler.postDelayed(this, 400)
                 return
             }
@@ -90,7 +91,17 @@ class MainActivity : AppCompatActivity() {
             TaskRunner.novelResult?.let {
                 findViewById<TextView>(R.id.tvNovelResult).text = it
             }
-            if (TaskRunner.running) pollHandler.postDelayed(this, 400)
+            if (TaskRunner.running) {
+                pollCount = 0
+                pollHandler.postDelayed(this, 400)
+                return
+            }
+            // 任务刚结束：再续订几轮，确保完成瞬间的静态结果被刷上屏
+            // （应对"用户留在界面、没切走触发 onResume"的情况）
+            if (pollCount < 5) {
+                pollCount += 1
+                pollHandler.postDelayed(this, 600)
+            }
         }
     }
 
@@ -119,7 +130,18 @@ class MainActivity : AppCompatActivity() {
     /** Shizuku 授权结果回来（1001）：刷新可用性状态。 */
     override fun onResume() {
         super.onResume()
-        if (TaskService.instance()?.running == true) pollHandler.post(pollRunnable)
+        // 任务还在跑 → 继续轮询
+        if (TaskService.instance()?.running == true || TaskService.staticRunning()) {
+            pollHandler.post(pollRunnable)
+        }
+        // 优先读进程级静态结果（服务完成后仍可读到）
+        TaskService.staticRenameResult()?.let {
+            findViewById<TextView>(R.id.tvRenameResult).text = it
+        }
+        TaskService.staticNovelResult()?.let {
+            findViewById<TextView>(R.id.tvNovelResult).text = it
+        }
+        // 再读活的服务（进行中进度）
         TaskService.instance()?.let { svc ->
             svc.renameResult?.let {
                 findViewById<TextView>(R.id.tvRenameResult).text = it
