@@ -1,6 +1,8 @@
 package com.example.novelmd5
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import rikka.shizuku.Shizuku
 
@@ -16,6 +18,7 @@ import rikka.shizuku.Shizuku
 object ShizukuHelper {
 
     private const val TAG = "ShizukuHelper"
+    private const val REQ_CODE = 1001
 
     /** Shizuku 是否可用（已装 + 已授权 + 服务端在跑 + 本应用已拿到 binder）。 */
     fun available(): Boolean = try {
@@ -25,16 +28,40 @@ object ShizukuHelper {
     }
 
     /**
-     * 请求 Shizuku 授权（需在 Shizuku 服务可用后、Activity 里调）。
-     * 授权结果通过 Shizuku.addRequestPermissionResultListener 回调。
-     * Shizuku 不可用时调用会静默失败。
+     * 请求 Shizuku 授权。
+     * 通过 Shizuku.addRequestPermissionResultListener 监听结果（必须在主线程调）。
+     * 授权成功后 onGranted 回调；取消/拒绝 onDenied 回调。
+     * Shizuku 不可用时调用会静默失败，走 onDenied。
      */
-    fun requestAuthorization(context: Context) {
+    fun requestAuthorization(
+        context: Context,
+        onGranted: () -> Unit,
+        onDenied: (reason: String) -> Unit
+    ) {
         try {
-            Shizuku.requestPermission(1001)
+            if (!Shizuku.pingBinder()) {
+                onDenied("Shizuku 未运行或未安装，请先在 Shizuku 里启动服务")
+                return
+            }
+            val listener = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, result ->
+                try {
+                    Shizuku.removeRequestPermissionResultListener(listener)
+                } catch (_: Exception) {}
+                // Shizuku 权限结果码：0=OK, 1=Denied, 2=Failed/Unknown
+                if (result == 0) onGranted()
+                else onDenied("授权被拒或失败（结果码 $result）")
+            }
+            Shizuku.addRequestPermissionResultListener(listener)
+            Shizuku.requestPermission(REQ_CODE)
         } catch (e: Exception) {
             Log.w(TAG, "Shizuku requestAuthorization failed: ${e.message}")
+            onDenied("Shizuku 请求异常：${e.message}")
         }
+    }
+
+    /** 简单版（无回调，供老调用点）：静默请求，结果不关心。 */
+    fun requestAuthorization(context: Context) {
+        requestAuthorization(context, onGranted = {}, onDenied = {})
     }
 
     /** 用 shell 提权把字节写到真实文件路径。成功返回 true，失败（含 Shizuku 不可用）返回 false。 */
@@ -45,7 +72,6 @@ object ShizukuHelper {
             val safeDir = escapeShellPath(realPath.substringBeforeLast('/', ""))
             val safeFile = escapeShellPath(realPath)
             val shCmd = "mkdir -p '$safeDir' && echo '$b64' | base64 -d > '$safeFile' && echo DSH_OK"
-            // 通过 Shizuku binder 以 shell 身份执行命令
             val out = execShell(shCmd) ?: return false
             return out.contains("DSH_OK")
         } catch (e: Exception) {
@@ -54,16 +80,8 @@ object ShizukuHelper {
         }
     }
 
-    /**
-     * 用 Shizuku 以 shell 身份执行一条命令，返回 stdout；Shizuku 不可用或执行失败返回 null。
-     * 用 ShizukuBinderWrapper 的 remote 通道 + 内置的 remote exec，避免依赖不稳定的公开 API。
-     */
     private fun execShell(cmd: String): String? {
         return try {
-            val binder = Shizuku.getBinder() ?: return null
-            // Shizuku 提供 ShizukuBinderWrapper 包装 binder，但执行命令没有稳定公开 API；
-            // 这里通过 Shizuku 的 remote binder 调 "newProcess" 反射（各版本私有签名不同），
-            // 失败则返回 null 让上层回落兜底路径。
             val cls = Shizuku::class.java
             val m = cls.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             m.isAccessible = true

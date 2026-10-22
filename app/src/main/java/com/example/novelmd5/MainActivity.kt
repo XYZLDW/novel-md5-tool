@@ -124,7 +124,78 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnDoRename).setOnClickListener { startRename() }
         findViewById<Button>(R.id.btnDoNovel).setOnClickListener { startNovel() }
 
+        // Shizuku 授权块：未授权时显示「去授权」按钮
+        findViewById<Button>(R.id.btnShizukuAuth).setOnClickListener { doShizukuAuth() }
+        // 排序方式旁小问号：弹出原黄色提示内容
+        findViewById<android.view.View>(R.id.btnOrderHelp).setOnClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("图片排序方式")
+                .setMessage("请选【图片排序方式】决定 MD5 填入顺序，与小说里 img 出现顺序对应。\n" +
+                    "授权后结果直接写你选的输出目录；未授权落 下载/\n" +
+                    "提示：结果 txt 会尽量写进你选的输出目录；写不了会落到 图片文件夹 或 下载/")
+                .setPositiveButton("知道了", null)
+                .show()
+        }
+
         checkNovelReady()
+        refreshShizukuStatus()
+
+        // 首次进入检测 Shizuku 授权：没授权就弹「去授权/取消」
+        maybePromptShizuku()
+    }
+
+    /** 根据 Shizuku 当前可用性，刷新界面「Shizuku 授权块」的状态文案与按钮。 */
+    private fun refreshShizukuStatus() {
+        val ok = ShizukuHelper.available()
+        val block = findViewById<android.view.View>(R.id.blockShizuku)
+        val tv = findViewById<TextView>(R.id.tvShizukuStatus)
+        val btn = findViewById<Button>(R.id.btnShizukuAuth)
+        if (ok) {
+            block.visibility = android.view.View.VISIBLE
+            tv.text = "已授权 · 功能2 结果可直写你指定的目录"
+            tv.setTextColor(0xFF2E7D32.toInt())
+            btn.visibility = android.view.View.GONE
+        } else {
+            block.visibility = android.view.View.VISIBLE
+            tv.text = "未授权 · 结果只能落到 下载/ 或图片文件夹（可选授权后直写任意目录）"
+            tv.setTextColor(0xFF8A8A8A.toInt())
+            btn.visibility = android.view.View.VISIBLE
+            btn.text = "去授权"
+        }
+    }
+
+    /** 启动时若 Shizuku 不可用，弹「去授权 / 取消」对话框引导授权。 */
+    private fun maybePromptShizuku() {
+        if (ShizukuHelper.available()) return
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Shizuku 提权未就绪")
+            .setMessage("未授权时，功能2 的结果只能落到「下载/ 或 图片文件夹」。授权 Shizuku 后可直写你指定的任意目录。\n请先安装并启动 Shizuku，再点「去授权」。")
+            .setPositiveButton("去授权") { _, _ -> doShizukuAuth() }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 真正发起 Shizuku 授权请求（授权块按钮 & 对话框共用）。 */
+    private fun doShizukuAuth() {
+        ShizukuHelper.requestAuthorization(
+            this,
+            onGranted = {
+                runOnUiThread {
+                    refreshShizukuStatus()
+                    toast("Shizuku 提权已允许：功能2 结果可直接写你指定的目录")
+                }
+            },
+            onDenied = { reason ->
+                runOnUiThread {
+                    refreshShizukuStatus()
+                    toast(reason)
+                }
+            }
+        )
+    }
+
+    private fun toast(msg: String) {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
     }
 
     /** Shizuku 授权结果回来（1001）：刷新可用性状态。 */
@@ -134,6 +205,8 @@ class MainActivity : AppCompatActivity() {
         if (TaskService.instance()?.running == true || TaskService.staticRunning()) {
             pollHandler.post(pollRunnable)
         }
+        // 回前台时刷新 Shizuku 授权状态（用户可能在 Shizuku 里改了授权）
+        refreshShizukuStatus()
         // 优先读进程级静态结果（服务完成后仍可读到）
         TaskService.staticRenameResult()?.let {
             findViewById<TextView>(R.id.tvRenameResult).text = it
@@ -148,37 +221,6 @@ class MainActivity : AppCompatActivity() {
             }
             svc.novelResult?.let {
                 findViewById<TextView>(R.id.tvNovelResult).text = it
-            }
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            100 -> {
-                if (grantResults.isNotEmpty() &&
-                    grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    Toast.makeText(
-                        this, "通知权限已允许，重按一次「开始」即可看到通知栏",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-            // Shizuku 授权结果
-            1001 -> {
-                if (grantResults.isNotEmpty() &&
-                    grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    Toast.makeText(
-                        this, "Shizuku 提权已允许：功能2 结果可直接写你指定的目录",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
             }
         }
     }
