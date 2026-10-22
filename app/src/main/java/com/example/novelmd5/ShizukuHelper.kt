@@ -43,15 +43,17 @@ object ShizukuHelper {
                 onDenied("Shizuku 未运行或未安装，请先在 Shizuku 里启动服务")
                 return
             }
-            val listener: rikka.shizuku.Shizuku.OnRequestPermissionResultListener =
-                rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, result ->
+            // 用 object 实现 SAM，避免 lambda 初始化期引用自身（Kotlin 限制）
+            val listener = object : rikka.shizuku.Shizuku.OnRequestPermissionResultListener {
+                override fun onRequestPermissionResult(requestCode: Int, result: Int) {
                     try {
-                        Shizuku.removeRequestPermissionResultListener(listener)
+                        Shizuku.removeRequestPermissionResultListener(this)
                     } catch (_: Exception) {}
                     // Shizuku 权限结果码：0=OK, 1=Denied, 2=Failed/Unknown
                     if (result == 0) onGranted()
                     else onDenied("授权被拒或失败（结果码 $result）")
                 }
+            }
             Shizuku.addRequestPermissionResultListener(listener)
             Shizuku.requestPermission(REQ_CODE)
         } catch (e: Exception) {
