@@ -43,14 +43,15 @@ object ShizukuHelper {
                 onDenied("Shizuku 未运行或未安装，请先在 Shizuku 里启动服务")
                 return
             }
-            val listener = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, result ->
-                try {
-                    Shizuku.removeRequestPermissionResultListener(listener)
-                } catch (_: Exception) {}
-                // Shizuku 权限结果码：0=OK, 1=Denied, 2=Failed/Unknown
-                if (result == 0) onGranted()
-                else onDenied("授权被拒或失败（结果码 $result）")
-            }
+            val listener: rikka.shizuku.Shizuku.OnRequestPermissionResultListener =
+                rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, result ->
+                    try {
+                        Shizuku.removeRequestPermissionResultListener(listener)
+                    } catch (_: Exception) {}
+                    // Shizuku 权限结果码：0=OK, 1=Denied, 2=Failed/Unknown
+                    if (result == 0) onGranted()
+                    else onDenied("授权被拒或失败（结果码 $result）")
+                }
             Shizuku.addRequestPermissionResultListener(listener)
             Shizuku.requestPermission(REQ_CODE)
         } catch (e: Exception) {
