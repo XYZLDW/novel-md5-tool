@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="md5_order_entries">
-        <item>文件名 A→Z（默认）</item>
-        <item>文件名 Z→A</item>
-        <item>修改时间 旧→新</item>
+        <item>修改时间 旧→新（默认）</item>
         <item>修改时间 新→旧</item>
+        <item>文件名 A→Z</item>
+        <item>文件名 Z→A</item>
         <item>文件大小 小→大</item>
         <item>文件大小 大→小</item>
     </string-array>

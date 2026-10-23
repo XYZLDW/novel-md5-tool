@@ -417,13 +417,13 @@ class TaskService : Service() {
     }
 
     private fun sortComparator(idx: Int): Comparator<RenameTask.ImgDoc> = when (idx) {
-        0 -> compareBy<RenameTask.ImgDoc> { it.name.lowercase() }
-        1 -> compareByDescending<RenameTask.ImgDoc> { it.name.lowercase() }
-        2 -> compareBy<RenameTask.ImgDoc> { it.mtime }
-        3 -> compareByDescending<RenameTask.ImgDoc> { it.mtime }
+        0 -> compareBy<RenameTask.ImgDoc> { it.mtime }           // 修改时间 旧→新（默认）
+        1 -> compareByDescending<RenameTask.ImgDoc> { it.mtime } // 修改时间 新→旧
+        2 -> compareBy<RenameTask.ImgDoc> { it.name.lowercase() }
+        3 -> compareByDescending<RenameTask.ImgDoc> { it.name.lowercase() }
         4 -> compareBy<RenameTask.ImgDoc> { it.size }
         5 -> compareByDescending<RenameTask.ImgDoc> { it.size }
-        else -> compareBy<RenameTask.ImgDoc> { it.name.lowercase() }
+        else -> compareBy<RenameTask.ImgDoc> { it.mtime }
     }
 
     // ---------- 通知 ----------
