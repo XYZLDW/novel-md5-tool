@@ -20,9 +20,14 @@ object ShizukuHelper {
     private const val TAG = "ShizukuHelper"
     private const val REQ_CODE = 1001
 
-    /** Shizuku 是否可用（已装 + 已授权 + 服务端在跑 + 本应用已拿到 binder）。 */
+    /**
+     * Shizuku 是否「已授权且可用」。
+     * 光 pingBinder 不够：服务绑定 ≠ 本应用被授权（未授权时 binder 也可能在，
+     * 但 shell 提权会被拒）。必须叠加 checkSelfPermission()==0（PERMISSION_GRANTED）
+     * 才算真正授权成功。
+     */
     fun available(): Boolean = try {
-        Shizuku.pingBinder()
+        Shizuku.pingBinder() && Shizuku.checkSelfPermission() == 0
     } catch (e: Exception) {
         false
     }
